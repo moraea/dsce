@@ -46,6 +46,7 @@ BOOL isAligned(long address,int amount)
 	
 	Output* output=[Output.alloc initWithCache:cache image:image].autorelease;
 	[output extractWithPath:outPath];
+	[output signAndSetPermissions:outPath];
 }
 
 -(instancetype)initWithCache:(Cache*)cache image:(Image*)image
@@ -76,6 +77,47 @@ BOOL isAligned(long address,int amount)
 	
 	trace(@"write %@",outPath);
 	[self.data writeToFile:outPath atomically:false];
+
+}
+
+-(void)signAndSetPermissions:(NSString*)outPath
+{
+	/*
+	Fix binary for usage in-OS:
+	   codesign -f -s - <binary>
+	   chmod -f 775 <binary>
+	   chown -f root:wheel <binary>
+	*/
+
+	trace(@"codesigning and setting permissions on binary: %@",outPath);
+
+	NSTask* task=NSTask.alloc.init;
+
+	// codesign -f -s - <binary>
+	task.launchPath=@"/usr/bin/codesign";
+	task.arguments=@[@"-f",@"-s",@"-",outPath];
+	task.standardOutput=NSPipe.pipe;
+	task.standardError=NSPipe.pipe;
+	[task launch];
+	[task waitUntilExit];
+
+	// chmod -f 775 <binary>
+	task=NSTask.alloc.init;
+	task.launchPath=@"/bin/chmod";
+	task.arguments=@[@"-f",@"775",outPath];
+	task.standardOutput=NSPipe.pipe;
+	task.standardError=NSPipe.pipe;
+	[task launch];
+	[task waitUntilExit];
+
+	// chown -f root:wheel <binary>
+	task=NSTask.alloc.init;
+	task.launchPath=@"/usr/sbin/chown";
+	task.arguments=@[@"-f",@"root:wheel",outPath];
+	task.standardOutput=NSPipe.pipe;
+	task.standardError=NSPipe.pipe;
+	[task launch];
+	[task waitUntilExit];
 }
 
 -(void)stepImportHeader
