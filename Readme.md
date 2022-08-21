@@ -8,12 +8,13 @@ Incomplete macOS 11+ dyld cache extractor with a focus on Metal-related dylibs.
 - [Hopper Disassembler](https://www.hopperapp.com): Mach-O inspection, Objective-C struct definitions
 - [Mach-O Explorer](https://github.com/DeVaukz/MachO-Explorer), [MachOView](https://github.com/mythkiven/MachOView): Mach-O inspection
 - [Wikipedia](https://wikipedia.org): [LEB128](https://en.wikipedia.org/wiki/LEB128)
-- [Moraea](https://github.com/moraea): guidance and testing
+- [Moraea](https://github.com/moraea): code, guidance and testing
 
 ## status
 
-- [x] copy segments, update load commands and layout
-- [x] apply cache rebase chain
+- [x] copy header and load commands
+- [x] copy segments/sections, updating offsets and addresses
+- [x] process cache rebase chain
 	- [x] generate opcodes
 - [x] generate bind opcodes
 	- [x] from symbol pointer sections
@@ -35,13 +36,16 @@ Incomplete macOS 11+ dyld cache extractor with a focus on Metal-related dylibs.
 	- [x] satisfy Stubber (`nm`, Objective-C runtime, linker)
 	- [ ] satisfy `lldb`
 - [ ] produce working images
-	- [x] work normally with selected images extracted and installed
-		- [x] QuartzCore, CoreGraphics, Carbon, AppKit (12.5 DP3)
-		- [x] MetalPerformanceShaders and sub-frameworks (12.5 DP2)
-		- [x] GeForce bundles (12.0 DP6)
+	- [ ] work normally with selected images extracted and installed
+		- [x] 12.5 DP3 - QuartzCore, CoreGraphics, Carbon, AppKit
+		- [x] 12.5 DP2 - MetalPerformanceShaders and sub-frameworks
+		- [x] 12.0 DP6 - GeForce bundles
+		- [x] 13.0 DP4 - QuartzCore, CoreGraphics, Carbon
+		- [ ] 13.0 DP4 - AppKit
 	- [ ] work normally with all images extracted and cache removed
 - [ ] support Big Sur
 - [x] support Monterey
-- [ ] support Ventura
+- [x] support Ventura
+	- [ ] without the `__objc_imageinfo` hack
 - [ ] use sane amounts of RAM and CPU
 - [ ] write automated tests to detect regressions

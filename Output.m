@@ -61,11 +61,11 @@ BOOL isAligned(long address,int amount)
 	return self;
 }
 
+// TODO: calling this multiple times on one instance would be bad
+
 -(void)extractWithPath:(NSString*)outPath
 {
-	// TODO: calling this multiple times on one instance would be bad
-	
-	NSArray<NSString*>* steps=@[@"stepImportHeader",@"stepImportSegmentsExceptLinkedit",@"stepImportRebases",@"stepFixImageInfo",@"stepFindMagicSel",@"stepFindEmbeddedSels",@"stepFixSelRefs",@"stepFixClasses",@"stepFixCats",@"stepFixProtoRefs",@"stepFixProtos",@"stepFixSymbolPointers",@"stepFixOtherPointers",@"stepBuildLinkedit",@"stepMarkUUID",@"stepSyncHeader"];
+	NSArray<NSString*>* steps=@[@"stepImportHeader",@"stepImportSegmentsExceptLinkedit",@"stepImportRebases",@"stepImportExports",@"stepFixImageInfo",@"stepFindMagicSel",@"stepFindEmbeddedSels",@"stepFixSelRefs",@"stepFixClasses",@"stepFixCats",@"stepFixProtoRefs",@"stepFixProtos",@"stepFixSymbolPointers",@"stepFixOtherPointers",@"stepBuildLinkedit",@"stepMarkUUID",@"stepSyncHeader"];
 	
 	for(NSString* step in steps)
 	{
@@ -80,6 +80,8 @@ BOOL isAligned(long address,int amount)
 
 -(void)stepImportHeader
 {
+	self.shouldMakeImpostor=!![self.cacheImage.header sectionCommandWithName:(char*)"__objc_imageinfo"];
+	
 	self.header=ImageHeader.alloc.initEmpty.autorelease;
 	
 	__block int copied=0;
@@ -107,8 +109,34 @@ BOOL isAligned(long address,int amount)
 			if(command->vmaddr==address.longValue)
 			{
 				[self.header addCommand:(struct load_command*)command];
+				
 				copied++;
-				return;
+				
+				// Ventura dereferences __objc_imageinfo before mapping segments separately
+				// and assumes fileoff/vmaddr deltas are equivalent (i.e. segments are contiguous)
+				// causing a crash in dyld3::MachOAnalyzer::hasSwiftOrObjC
+				// rebasing segments relative to each other is not practical due to relative
+				// loads/stores, and the fact that LC_SEGMENT_SPLIT_INFO is stripped
+				// so we "move" __objc_imageinfo right after TEXT by creating an impostor
+				
+				if(self.shouldMakeImpostor&&!strcmp(command->segname,SEG_TEXT))
+				{
+					int impostorSize=sizeof(struct segment_command_64)+sizeof(struct section_64);
+					
+					NSMutableData* impostorData=[NSMutableData dataWithLength:impostorSize];
+					
+					struct segment_command_64* impostor=(struct segment_command_64*)impostorData.mutableBytes;
+					impostor->cmd=LC_SEGMENT_64;
+					impostor->cmdsize=impostorSize;
+					memcpy(impostor->segname,SEG_DATA,strlen(SEG_DATA));
+					impostor->maxprot=VM_PROT_READ;
+					impostor->initprot=VM_PROT_READ;
+					impostor->nsects=1;
+					
+					[self.header addCommand:(struct load_command*)impostor];
+					
+					// finished when importing segments
+				}
 			}
 		}];
 	}
@@ -153,8 +181,7 @@ BOOL isAligned(long address,int amount)
 	
 	self.data=[NSMutableData dataWithCapacity:0x100000000];
 	
-	self.segmentLeftPads=NSMutableArray.alloc.init.autorelease;
-	self.segmentRightPads=NSMutableArray.alloc.init.autorelease;
+	self.sectionRecords=NSMutableArray.alloc.init.autorelease;
 	
 	[self importSegmentsCommon:false];
 }
@@ -169,8 +196,15 @@ BOOL isAligned(long address,int amount)
 
 -(void)importSegmentsCommon:(BOOL)linkeditPhase
 {
+	__block struct segment_command_64* nextPrevCommand=NULL;
+	
 	[self.header forEachSegmentCommand:^(struct segment_command_64* command)
 	{
+		// TODO: weird
+		
+		struct segment_command_64* prevCommand=nextPrevCommand;
+		nextPrevCommand=command;
+		
 		BOOL isLinkedit=!strcmp(command->segname,SEG_LINKEDIT);
 		if(linkeditPhase&&!isLinkedit)
 		{
@@ -181,80 +215,134 @@ BOOL isAligned(long address,int amount)
 			return;
 		}
 		
+		if(self.shouldMakeImpostor&&prevCommand&&!strcmp(prevCommand->segname,SEG_TEXT))
+		{
+			trace(@"impostor");
+			
+			command->vmaddr=prevCommand->vmaddr+prevCommand->vmsize;
+			command->fileoff=self.data.length;
+			command->vmsize=0x1000;
+			command->filesize=0x1000;
+			
+			struct section_64* impostor=(struct section_64*)(command+1);
+			impostor->offset=command->fileoff;
+			impostor->addr=command->vmaddr;
+			impostor->size=sizeof(objc_image_info);
+			
+			struct section_64* original=[self.cacheImage.header sectionCommandWithName:(char*)"__objc_imageinfo"];
+			assert(original);
+			objc_image_info* originalInfo=(objc_image_info*)wrapOffset(self.cacheImage.file,original->offset).pointer;
+			
+			objc_image_info* info=(objc_image_info*)self.data.mutableBytes;
+			[self.data increaseLengthBy:0x1000];
+			memcpy(info,originalInfo,sizeof(objc_image_info));
+			
+			memcpy(impostor->segname,SEG_DATA,strlen(SEG_DATA));
+			memcpy(impostor->sectname,"__objc_imageinfo",16);
+			
+			// bogus record for check in offsetWithAddress:
+			
+			MoveRecord* record=[MoveRecord recordWithOldStart:impostor->addr newStart:impostor->addr size:impostor->size];
+			[self.sectionRecords addObject:record];
+			
+			return;
+		}
+		
 		trace(@"copying %s",command->segname);
 		
 		NSMutableData* data=NSMutableData.alloc.init.autorelease;
 		
-		long oldAddress=command->vmaddr;
-		long oldSize=command->filesize;
+		long newSegAddress=0;
+		if(prevCommand)
+		{
+			newSegAddress=prevCommand->vmaddr+prevCommand->vmsize;
+		}
 		
-		// vmaddr must be page aligned, move left to nearest page boundary
-		// pad so the addresses of given data are not changed
+		// due to the relative loads/stores issue, adjusting addresses isn't very useful
+		// but since it's implemented anyways...
+		// make it easier to distinguish extracted addresses from cached ones (4ff.. vs 7ff..)
+		
+		newSegAddress=command->vmaddr-0x300000000000;
+		
+		// silently fails to mmap segments with un-aligned vmaddr
+		// so, move vmaddr to a page boundary, then left-pad to keep section addresses unchanged
 		
 		int addressDelta;
-		command->vmaddr=align(command->vmaddr,0x1000,false,&addressDelta);
-		assert(addressDelta<=0);
+		newSegAddress=align(newSegAddress,0x1000,false,&addressDelta);
 		
-		NSMutableData* leftPad=[NSMutableData dataWithLength:-addressDelta];
+		// offset is aligned by right-pad at the end of this function
 		
-		long offsetDelta=self.data.length-command->fileoff;
-		command->fileoff+=offsetDelta;
-		assert(offsetDelta<0);
+		long newSegOffset=self.data.length;
+		assert(isAligned(newSegOffset,0x1000));
 		
-		// line up sections with new offsets
+		[data increaseLengthBy:-addressDelta];
 		
 		[self.header forEachSectionCommand:^(struct segment_command_64* segment,struct section_64* section)
 		{
 			if(segment==command)
 			{
-				if(!section->offset)
+				long newSectOffset=0;
+				if(section->offset)
 				{
-					// zero-fill
-					
-					return;
+					long fileOffsetInSegment=section->offset-command->fileoff-addressDelta;
+					newSectOffset=newSegOffset+fileOffsetInSegment;
 				}
 				
-				section->offset+=offsetDelta+leftPad.length;
+				long memoryOffsetInSegment=section->addr-command->vmaddr-addressDelta;
+				unsigned long newSectAddress=newSegAddress+memoryOffsetInSegment;
+				
+				MoveRecord* record=[MoveRecord recordWithOldStart:section->addr newStart:newSectAddress size:section->size];
+				[self.sectionRecords addObject:record];
+				
+				section->offset=newSectOffset;
+				section->addr=newSectAddress;
+				
+				// deactivate original due to impostor
+				// TODO: probably not needed
+				
+				if(self.shouldMakeImpostor&&!strncmp(section->sectname,"__objc_imageinfo",16))
+				{
+					section->sectname[0]='x';
+				}
 			}
 		}];
-		
-		[data appendData:leftPad];
-		
-		if(isLinkedit)
-		{
-			[self buildLinkeditWithData:data];
-			
-			command->filesize=data.length;
-			command->vmsize=data.length;
-		}
-		else
-		{
-			[data appendBytes:wrapAddress(self.cache,oldAddress).pointer length:oldSize];
-		}
 		
 		// filesize (but not vmsize) must be an integer multiple of page size
 		// this does not seem to apply to linkedit
 		// and tools complain if there is unused space at the end
 		
-		int sizeDelta=0;
+		unsigned long newSegFileSize;
+		unsigned long newSegMemorySize;
 		
-		if(!isLinkedit)
+		if(isLinkedit)
 		{
-			command->filesize=align(data.length,0x1000,true,&sizeDelta);
-			assert(sizeDelta>=0);
+			[self buildLinkeditWithData:data];
+			
+			newSegFileSize=data.length;
+			newSegMemorySize=data.length;
+		}
+		else
+		{
+			[data appendBytes:wrapAddress(self.cache,command->vmaddr).pointer length:command->filesize];
+			
+			newSegFileSize=command->filesize-addressDelta;
+			
+			int sizeDelta;
+			newSegFileSize=align(newSegFileSize,0x1000,true,&sizeDelta);
+			[data increaseLengthBy:sizeDelta];
+			
+			newSegMemorySize=command->vmsize-addressDelta+sizeDelta;
 		}
 		
-		NSMutableData* rightPad=[NSMutableData dataWithLength:sizeDelta];
-		[data appendData:rightPad];
+		assert(newSegMemorySize>=newSegFileSize);
 		
-		// TODO: correct?
+		command->fileoff=newSegOffset;
+		command->vmaddr=newSegAddress;
 		
-		command->vmsize+=leftPad.length+rightPad.length;
+		command->filesize=newSegFileSize;
+		command->vmsize=newSegMemorySize;
 		
 		[self.data appendData:data];
-		
-		[self.segmentLeftPads addObject:[NSNumber numberWithInt:leftPad.length]];
-		[self.segmentRightPads addObject:[NSNumber numberWithInt:rightPad.length]];
 	}];
 }
 
@@ -366,15 +454,15 @@ BOOL isAligned(long address,int amount)
 	long reexportCount=0;
 	
 	std::vector<ExportInfoTrie::Entry> trieEntries;
-	for(Symbol* item in self.cacheImage.symbols.allValues)
+	for(Symbol* item in self.exports)
 	{
-		if(!item.isExport)
-		{
-			continue;
-		}
+		assert(item.isExport);
 		
-		struct ExportInfo info;
-		info.address=item.address-baseAddress;
+		struct ExportInfo info={};
+		if(item.address)
+		{
+			info.address=item.address-baseAddress;
+		}
 		
 		if(item.importName)
 		{
@@ -451,6 +539,12 @@ BOOL isAligned(long address,int amount)
 		memcpy(&entry,cacheEntry,sizeof(struct nlist_64));
 		entry.n_un.n_strx=stringsData.length;
 		
+		if(entry.n_value)
+		{
+			entry.n_value=[self convertAddress:entry.n_value];
+			assert(entry.n_value!=-1);
+		}
+		
 		[data appendBytes:&entry length:sizeof(struct nlist_64)];
 		
 		[stringsData appendBytes:name length:strlen(name)+1];
@@ -500,21 +594,16 @@ BOOL isAligned(long address,int amount)
 
 -(long)addressWithOffset:(long)offset
 {
-	int segmentIndex;
-	struct segment_command_64* command=[self.header segmentCommandWithOffset:offset indexOut:&segmentIndex];
+	struct segment_command_64* command=[self.header segmentCommandWithOffset:offset indexOut:NULL];
 	if(!command)
 	{
 		return -1;
 	}
 	
 	long segmentOffset=offset-command->fileoff;
-	
-	if([self inPaddingWithSegmentIndex:segmentIndex offset:segmentOffset length:command->filesize])
-	{
-		return -1;
-	}
-	
 	return command->vmaddr+segmentOffset;
+	
+	// Location checks address validity
 }
 
 -(long)addressWithPointer:(char*)pointer
@@ -524,21 +613,39 @@ BOOL isAligned(long address,int amount)
 
 -(long)offsetWithAddress:(long)address
 {
-	int segmentIndex;
-	struct segment_command_64* command=[self.header segmentCommandWithAddress:address indexOut:&segmentIndex];
+	struct segment_command_64* command=[self.header segmentCommandWithAddress:address indexOut:NULL];
 	if(!command)
 	{
 		return -1;
 	}
 	
 	long segmentOffset=address-command->vmaddr;
+	long offset=command->fileoff+segmentOffset;
 	
-	if([self inPaddingWithSegmentIndex:segmentIndex offset:segmentOffset length:command->vmsize])
+	// instead of recording padding, explicitly check section bounds
+	
+	BOOL inSection=false;
+	for(MoveRecord* record in self.sectionRecords)
 	{
-		return -1;
+		if([record containsNew:address])
+		{
+			inSection=true;
+			break;
+		}
+	}
+	if(!inSection)
+	{
+		if(offset==0)
+		{
+			// base address is not in a section, but we use it when generating fixups
+		}
+		else
+		{
+			return -1;
+		}
 	}
 	
-	return command->fileoff+segmentOffset;
+	return offset;
 }
 
 -(char*)pointerWithAddress:(long)address
@@ -546,18 +653,17 @@ BOOL isAligned(long address,int amount)
 	return (char*)self.data.mutableBytes+[self offsetWithAddress:address];
 }
 
--(BOOL)inPaddingWithSegmentIndex:(int)index offset:(long)offset length:(long)length
+-(long)convertAddress:(long)address
 {
-	if(offset<self.segmentLeftPads[index].intValue)
+	for(MoveRecord* record in self.sectionRecords)
 	{
-		return true;
-	}
-	if(length-offset<self.segmentRightPads[index].intValue)
-	{
-		return true;
+		if([record containsOld:address])
+		{
+			return [record convert:address];
+		}
 	}
 	
-	return false;
+	return -1;
 }
 
 -(void)stepImportRebases
@@ -565,18 +671,56 @@ BOOL isAligned(long address,int amount)
 	self.rebases=NSMutableDictionary.alloc.init.autorelease;
 	self.binds=NSMutableDictionary.alloc.init.autorelease;
 	
-	// TODO: extremely slow
-	// addresses are sorted, could find bounds via binary search
+	// TODO: extremely slow, could find bounds via binary search, or at least exit early
 	
 	for(NSNumber* rebase in self.cacheImage.file.rebaseAddresses)
 	{
-		if([self.header segmentCommandWithAddress:rebase.longValue indexOut:NULL])
+		long converted=[self convertAddress:rebase.longValue];
+		if(converted==-1)
 		{
-			[self addRebaseWithAddress:rebase.longValue];
+			continue;
+		}
+		
+		[self addRebaseWithAddress:converted];
+		
+		long* value=(long*)wrapAddress(self,converted).pointer;
+		long newValue=[self convertAddress:*value];
+		if(newValue==-1)
+		{
+			// TODO: assert that these are bound later
+		}
+		else
+		{
+			*value=newValue;
 		}
 	}
 	
-	trace(@"copied %x rebases",self.rebases.count);
+	trace(@"imported %x rebases",self.rebases.count);
+}
+
+-(void)stepImportExports
+{
+	self.exports=NSMutableArray.alloc.init.autorelease;
+	
+	for(Symbol* item in self.cacheImage.symbols.allValues)
+	{
+		if(!item.isExport)
+		{
+			continue;
+		}
+		
+		Symbol* converted=item.copy.autorelease;
+		
+		if(converted.address)
+		{
+			converted.address=[self convertAddress:converted.address];
+			assert(converted.address!=-1);
+		}
+		
+		[self.exports addObject:converted];
+	}
+	
+	trace(@"imported %lx exports",self.exports.count);
 }
 
 -(void)stepFixImageInfo
@@ -714,23 +858,10 @@ BOOL isAligned(long address,int amount)
 		
 		// superclass/metaclass pointers now auto-fixed by stepFixOtherPointers
 		
-		if(data->baseMethods)
-		{
-			[self fixMethodListWithAddress:(long)data->baseMethods];
-		}
-		if(metaData->baseMethods)
-		{
-			[self fixMethodListWithAddress:(long)metaData->baseMethods];
-		}
-		
-		if(data->baseProtocols)
-		{
-			[self fixProtoListWithAddress:(long)data->baseProtocols];
-		}
-		if(metaData->baseProtocols)
-		{
-			[self fixProtoListWithAddress:(long)metaData->baseProtocols];
-		}
+		[self fixMethodListWithAddress:(long)data->baseMethods];
+		[self fixMethodListWithAddress:(long)metaData->baseMethods];
+		[self fixProtoListWithAddress:(long)data->baseProtocols];
+		[self fixProtoListWithAddress:(long)metaData->baseProtocols];
 	}
 }
 
@@ -751,19 +882,9 @@ BOOL isAligned(long address,int amount)
 	{
 		struct objc_category* cat=(struct objc_category*)wrapAddress(self,cats[index]).pointer;
 		
-		if(cat->instanceMethods)
-		{
-			[self fixMethodListWithAddress:(long)cat->instanceMethods];
-		}
-		if(cat->classMethods)
-		{
-			[self fixMethodListWithAddress:(long)cat->classMethods];
-		}
-		
-		if(cat->protocols)
-		{
-			[self fixProtoListWithAddress:(long)cat->protocols];
-		}
+		[self fixMethodListWithAddress:(long)cat->instanceMethods];
+		[self fixMethodListWithAddress:(long)cat->classMethods];
+		[self fixProtoListWithAddress:(long)cat->protocols];
 	}
 }
 
@@ -771,11 +892,23 @@ BOOL isAligned(long address,int amount)
 
 -(void)fixProtoListWithAddress:(long)address
 {
+	if(!address)
+	{
+		return;
+	}
+	
 	long* list=(long*)wrapAddress(self,address).pointer;
 	int count=list[0];
 	
 	for(int index=1;index<count+1;index++)
 	{
+		if(wrapAddressUnsafe(self,list[index]))
+		{
+			// some already point within me
+			
+			continue;
+		}
+		
 		struct objc_protocol* proto=(struct objc_protocol*)wrapAddress(self.cache,list[index]).pointer;
 		char* name=wrapAddress(self.cache,(long)proto->name).pointer;
 		
@@ -825,27 +958,11 @@ BOOL isAligned(long address,int amount)
 		struct objc_protocol* proto=(struct objc_protocol*)wrapAddress(self,refs[index]).pointer;
 		char* name=wrapAddress(self,(long)proto->name).pointer;
 		
-		if(proto->instanceMethods)
-		{
-			[self fixMethodListWithAddress:(long)proto->instanceMethods];
-		}
-		if(proto->classMethods)
-		{
-			[self fixMethodListWithAddress:(long)proto->classMethods];
-		}
-		if(proto->optionalInstanceMethods)
-		{
-			[self fixMethodListWithAddress:(long)proto->optionalInstanceMethods];
-		}
-		if(proto->optionalClassMethods)
-		{
-			[self fixMethodListWithAddress:(long)proto->optionalClassMethods];
-		}
-		
-		if(proto->protocols)
-		{
-			[self fixProtoListWithAddress:(long)proto->protocols];
-		}
+		[self fixMethodListWithAddress:(long)proto->instanceMethods];
+		[self fixMethodListWithAddress:(long)proto->classMethods];
+		[self fixMethodListWithAddress:(long)proto->optionalInstanceMethods];
+		[self fixMethodListWithAddress:(long)proto->optionalClassMethods];
+		[self fixProtoListWithAddress:(long)proto->protocols];
 	}
 }
 
@@ -874,6 +991,8 @@ BOOL isAligned(long address,int amount)
 }
 
 // transfer S_NON_LAZY_SYMBOL_POINTERS from indirect symbol table (ignored) to dyld info binds
+// TODO: confirm this can't be handled by stepFixOtherPointers
+// previously had problems with some libSystem addresses not matching exports
 
 -(void)stepFixSymbolPointers
 {
@@ -885,6 +1004,9 @@ BOOL isAligned(long address,int amount)
 		if((section->flags&SECTION_TYPE)!=S_NON_LAZY_SYMBOL_POINTERS)
 		{
 			return;
+			
+			// TODO: Ventura AppKit __got lacks this flag
+			// but Ventura AppKit __stubs doesn't even point to __got, so something else is up...
 		}
 		
 		long* data=(long*)wrapOffset(self,section->offset).pointer;
@@ -906,12 +1028,10 @@ BOOL isAligned(long address,int amount)
 }
 
 // scan for things that look like pointers and try to fix them
+// TODO: all cache pointers must have a rebase, so why don't we just scan those...
 
 -(void)stepFixOtherPointers
 {
-	// TODO: false positives?
-	// TODO: reduce the chance by denylisting sections in TEXT?
-	
 	__block long sectionCount=0;
 	__block long bindCount=0;
 	__block long errorCount=0;
@@ -989,6 +1109,11 @@ BOOL isAligned(long address,int amount)
 
 -(void)fixMethodListWithAddress:(long)address
 {
+	if(!address)
+	{
+		return;
+	}
+	
 	struct objc_method_list* header=(struct objc_method_list*)wrapAddress(self,address).pointer;
 	
 	char* methods=(char*)(header+1);
@@ -1102,7 +1227,7 @@ BOOL isAligned(long address,int amount)
 	
 	NSUUID* newUUID=[NSUUID.alloc initWithUUIDBytes:command->uuid].autorelease;
 	
-	trace(@"updated uuid to %@ (old %@) for visibility in logs",newUUID.UUIDString,oldUUID.UUIDString);
+	trace(@"updated uuid to %@",newUUID.UUIDString);
 }
 
 -(void)stepSyncHeader

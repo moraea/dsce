@@ -23,6 +23,7 @@ void trace(NSString* format,...)
 #import "Rebase.h"
 #import "Bind.h"
 #import "Selector.h"
+#import "MoveRecord.h"
 #import "Output.h"
 
 #import "Location.m"
@@ -34,16 +35,17 @@ void trace(NSString* format,...)
 #import "Rebase.m"
 #import "Bind.m"
 #import "Selector.m"
+#import "MoveRecord.m"
 #import "Output.m"
 
 void extract(Cache* cache,Image* image)
 {
-	// TODO: draining this adds a significant delay between images
-	// but i am not about to rewrite everything with manual retain/release
+	// draining is very slow, and per-image memory use is insignificant compared to the whole cache
+	// TODO: re-enable and check for leaks once extracting many images is feasible
 	
-	@autoreleasepool
+	// @autoreleasepool
 	{
-		double time=NSDate.date.timeIntervalSince1970;
+		double startTime=NSDate.date.timeIntervalSince1970;
 		
 		NSString* outPath=[@"Out" stringByAppendingString:image.path];
 		NSString* outFolder=outPath.stringByDeletingLastPathComponent;
@@ -51,14 +53,15 @@ void extract(Cache* cache,Image* image)
 		
 		[Output runWithCache:cache image:image outPath:outPath];
 		
-		double delta=NSDate.date.timeIntervalSince1970-time;
-		trace(@"took %lf seconds",delta);
+		trace(@"image took %.2lf seconds",NSDate.date.timeIntervalSince1970-startTime);
 	}
 }
 
 int main(int argc,char** argv)
 {
-	@autoreleasepool
+	// just exiting is more efficient
+	
+	// @autoreleasepool
 	{
 		if(argc<3)
 		{
@@ -66,10 +69,11 @@ int main(int argc,char** argv)
 			return 1;
 		}
 		
+		double startTime=NSDate.date.timeIntervalSince1970;
+		
 		NSString* cachePath=[NSString stringWithUTF8String:argv[1]];
 		Cache* cache=[Cache.alloc initWithPathPrefix:cachePath].autorelease;
-		
-		// TODO: check for leaks extracting many images in one run
+		assert(cache);
 		
 		NSString* keyword=[NSString stringWithUTF8String:argv[2]];
 		
@@ -99,6 +103,8 @@ int main(int argc,char** argv)
 				}
 			}
 		}
+		
+		trace(@"total %.2lf seconds",NSDate.date.timeIntervalSince1970-startTime);
 	}
 	
 	return 0;

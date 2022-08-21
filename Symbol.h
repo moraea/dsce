@@ -10,4 +10,6 @@
 +(instancetype)reexportWithAddress:(long)address name:(NSString*)name importName:(NSString*)importName importOrdinal:(int)importOrdinal;
 +(instancetype)importWithName:(NSString*)name ordinal:(int)ordinal;
 
+-(instancetype)copy;
+
 @end

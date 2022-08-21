@@ -6,9 +6,22 @@
 	
 	for(int index=0;;index++)
 	{
-		// TODO: support Ventura scheme
-		
 		NSString* path=index==0?prefix:[NSString stringWithFormat:@"%@.%d",prefix,index];
+		
+		CacheFile* file=[CacheFile.alloc initWithPath:path].autorelease;
+		if(!file)
+		{
+			break;
+		}
+		
+		[files addObject:file];
+	}
+	
+	// TODO: bit of a silly way to support Ventura
+	
+	for(int index=1;;index++)
+	{
+		NSString* path=index==0?prefix:[NSString stringWithFormat:@"%@.%02d",prefix,index];
 		
 		CacheFile* file=[CacheFile.alloc initWithPath:path].autorelease;
 		if(!file)

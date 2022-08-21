@@ -35,7 +35,7 @@
 	self.header->cputype=CPU_TYPE_X86_64;
 	self.header->cpusubtype=CPU_SUBTYPE_X86_64_ALL;
 	self.header->filetype=MH_DYLIB;
-	self.header->flags=MH_DYLDLINK|MH_BINDS_TO_WEAK;
+	self.header->flags=MH_DYLDLINK|MH_BINDS_TO_WEAK|MH_TWOLEVEL|MH_ROOT_SAFE|MH_SETUID_SAFE;
 	
 	return self;
 }

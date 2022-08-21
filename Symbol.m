@@ -28,4 +28,15 @@
 	return result;
 }
 
+-(instancetype)copy
+{
+	Symbol* clone=Symbol.alloc.init;
+	clone.isExport=self.isExport;
+	clone.name=self.name;
+	clone.address=self.address;
+	clone.importName=self.importName;
+	clone.importOrdinal=self.importOrdinal;
+	return clone;
+}
+
 @end

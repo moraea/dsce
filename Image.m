@@ -68,16 +68,16 @@
 				{
 					item=[Symbol reexportWithAddress:entry.info.address name:name importName:[NSString stringWithUTF8String:entry.info.importName.c_str()] importOrdinal:entry.info.other];
 				}
-				else if(entry.info.flags==EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER)
+				else if(entry.info.flags==EXPORT_SYMBOL_FLAGS_KIND_REGULAR)
 				{
-					// TODO: unimplemented
-					// only used in a couple dylibs
-					
-					continue;
+					item=[Symbol exportWithAddress:entry.info.address name:name];
 				}
 				else
 				{
-					item=[Symbol exportWithAddress:entry.info.address name:name];
+					// TODO: implement EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER, etc
+					// only used in a couple dylibs
+					
+					continue;
 				}
 				
 				symbols[name]=item;
