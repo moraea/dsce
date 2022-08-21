@@ -84,6 +84,8 @@ BOOL isAligned(long address,int amount)
 	
 	self.header=ImageHeader.alloc.initEmpty.autorelease;
 	
+	self.header.header->flags=self.cacheImage.header.header->flags;
+	
 	__block int copied=0;
 	__block int skipped=0;
 	
@@ -1001,7 +1003,8 @@ BOOL isAligned(long address,int amount)
 	
 	[self.header forEachSectionCommand:^(struct segment_command_64* segment,struct section_64* section)
 	{
-		if((section->flags&SECTION_TYPE)!=S_NON_LAZY_SYMBOL_POINTERS)
+		int type=section->flags&SECTION_TYPE;
+		if(type!=S_NON_LAZY_SYMBOL_POINTERS&&type!=S_LAZY_SYMBOL_POINTERS)
 		{
 			return;
 			
