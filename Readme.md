@@ -37,9 +37,10 @@ Incomplete macOS 11+ dyld cache extractor with a focus on Metal-related dylibs.
 	- [ ] satisfy `lldb`
 - [ ] produce working images
 	- [ ] work normally with selected images extracted and installed
-		- [x] 12.5 DP3 - QuartzCore, CoreGraphics, Carbon, AppKit
-		- [x] 12.5 DP2 - MetalPerformanceShaders and sub-frameworks
 		- [x] 12.0 DP6 - GeForce bundles
+		- [x] 12.5 DP2 - MetalPerformanceShaders and sub-frameworks
+		- [x] 12.5 DP3 - QuartzCore, CoreGraphics, Carbon, AppKit
+		- [x] 12.5 - AMDMTLBronzeDriver, AMDShared, Metal, MetalPerformanceShaders, MTLCompiler, GPUCompiler
 		- [x] 13.0 DP4 - QuartzCore, CoreGraphics, Carbon
 		- [ ] 13.0 DP4 - AppKit
 	- [ ] work normally with all images extracted and cache removed

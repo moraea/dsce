@@ -231,21 +231,19 @@ BOOL isAligned(long address,int amount)
 			impostor->addr=command->vmaddr;
 			impostor->size=sizeof(objc_image_info);
 			
+			MoveRecord* record=[MoveRecord recordWithOldStart:impostor->addr newStart:impostor->addr size:impostor->size];
+			[self.sectionRecords addObject:record];
+			
 			struct section_64* original=[self.cacheImage.header sectionCommandWithName:(char*)"__objc_imageinfo"];
 			assert(original);
 			objc_image_info* originalInfo=(objc_image_info*)wrapOffset(self.cacheImage.file,original->offset).pointer;
 			
-			objc_image_info* info=(objc_image_info*)self.data.mutableBytes;
+			objc_image_info* info=(objc_image_info*)wrapOffset(self,impostor->offset).pointer;
 			[self.data increaseLengthBy:0x1000];
 			memcpy(info,originalInfo,sizeof(objc_image_info));
 			
 			memcpy(impostor->segname,SEG_DATA,strlen(SEG_DATA));
 			memcpy(impostor->sectname,"__objc_imageinfo",16);
-			
-			// bogus record for check in offsetWithAddress:
-			
-			MoveRecord* record=[MoveRecord recordWithOldStart:impostor->addr newStart:impostor->addr size:impostor->size];
-			[self.sectionRecords addObject:record];
 			
 			return;
 		}
@@ -1219,6 +1217,9 @@ BOOL isAligned(long address,int amount)
 	Rebase* rebase=[Rebase rebaseWithAddress:address];
 	self.rebases[[NSNumber numberWithLong:address]]=rebase;
 }
+
+// TODO: now that people use this, may be a good idea to write a version/commit hash somewhere
+// whether in LC_UUID or LC_NOTE or something else...
 
 -(void)stepMarkUUID
 {
