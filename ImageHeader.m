@@ -213,29 +213,40 @@
 	return result;
 }
 
--(NSArray<NSString*>*)reexportedDylibPaths
-{
-	return [self dylibPathsReexportOnly:true];
-}
-
 -(NSArray<NSString*>*)dylibPaths
 {
-	return [self dylibPathsReexportOnly:false];
-}
-
--(NSArray<NSString*>*)reexportedDylibPathsRecursiveWithCache:(CacheSet*)cache
-{
-	NSMutableArray* result=NSMutableArray.alloc.init.autorelease;
-	[result addObjectsFromArray:self.reexportedDylibPaths];
+	// order matters here (bind ordinal)
 	
-	for(NSString* path in self.reexportedDylibPaths)
+	if(!self.fastShallowPaths)
 	{
-		CacheImage* image=[cache imageWithPath:path];
-		assert(image);
-		[result addObjectsFromArray:[image.header reexportedDylibPathsRecursiveWithCache:cache]];
+		self.fastShallowPaths=[self dylibPathsReexportOnly:false];
 	}
 	
-	return result;
+	return self.fastShallowPaths;
+}
+
+-(NSSet<NSString*>*)reexportedDylibPathsRecursiveWithCache:(CacheSet*)cache
+{
+	if(!self.fastRecursivePaths)
+	{
+		// order doesn't matter here, since we're getting children of one import
+		
+		NSArray<NSString*>* reexports=[self dylibPathsReexportOnly:true];
+		
+		NSMutableSet* result=NSMutableSet.alloc.init.autorelease;
+		[result addObjectsFromArray:reexports];
+		
+		for(NSString* path in reexports)
+		{
+			CacheImage* image=[cache imageWithPath:path];
+			assert(image);
+			[result unionSet:[image.header reexportedDylibPathsRecursiveWithCache:cache]];
+		}
+		
+		self.fastRecursivePaths=result;
+	}
+	
+	return self.fastRecursivePaths;
 }
 
 -(int)ordinalWithDylibPath:(NSString*)target cache:(CacheSet*)cache symbol:(NSString*)symbol newSymbolOut:(NSString**)newSymbolOut
@@ -249,16 +260,19 @@
 	
 	for(int index=0;index<shallowPaths.count;index++)
 	{
-		CacheImage* image=[cache imageWithPath:shallowPaths[index]];
-		assert(image);
+		CacheImage* shallowImage=[cache imageWithPath:shallowPaths[index]];
+		assert(shallowImage);
 		
-		NSArray<NSString*>* deepPaths=[image.header reexportedDylibPathsRecursiveWithCache:cache];
+		NSSet<NSString*>* deepPaths=[shallowImage.header reexportedDylibPathsRecursiveWithCache:cache];
 		if([deepPaths containsObject:target])
 		{
 			return index+1;
 		}
 		
-		Address* reexport=[image reexportWithName:symbol];
+		// TODO: check if symbol actually comes from the dylib we originally matched
+		// name collisions are theoretically possible...
+		
+		Address* reexport=[shallowImage reexportWithName:symbol];
 		if(reexport)
 		{
 			*newSymbolOut=reexport.name;
@@ -267,8 +281,8 @@
 		
 		for(NSString* deepPath in deepPaths)
 		{
-			CacheImage* image=[cache imageWithPath:deepPath];
-			Address* reexport=[image reexportWithName:symbol];
+			CacheImage* deepImage=[cache imageWithPath:deepPath];
+			Address* reexport=[deepImage reexportWithName:symbol];
 			if(reexport)
 			{
 				*newSymbolOut=reexport.name;

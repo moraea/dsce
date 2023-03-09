@@ -1,6 +1,8 @@
 @interface ImageHeader:NSObject
 
 @property(retain) NSMutableData* data;
+@property(retain) NSArray<NSString*>* fastShallowPaths;
+@property(retain) NSSet<NSString*>* fastRecursivePaths;
 
 -(instancetype)initWithPointer:(char*)pointer;
 -(instancetype)initEmpty;

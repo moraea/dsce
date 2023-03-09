@@ -1,5 +1,3 @@
-#define DSCE_VERSION 3
-
 // TODO: use a Makefile already, this is ridiculous
 
 #import "Extern.h"
@@ -11,7 +9,7 @@ void trace(NSString* format,...)
 	NSString* message=[NSString.alloc initWithFormat:format arguments:args].autorelease;
 	va_end(args);
 	
-	printf("\e[%dm%s\e[0m\n",35,message.UTF8String);
+	printf("\e[%dm%s\e[0m\n",31+(DSCE_VERSION+1)%6,message.UTF8String);
 }
 
 #import "LocationBase.h"
@@ -37,8 +35,7 @@ void trace(NSString* format,...)
 
 void extract(CacheSet* cache,CacheImage* image)
 {
-	// TODO: genuinely needed now to prevent being jettisoned on runs of several images
-	// that is insane... fix it
+	// TODO: check for leaks between images
 	
 	@autoreleasepool
 	{
@@ -94,17 +91,25 @@ int main(int argc,char** argv)
 			// TODO: i wonder what would happen if i ran a few of these in parallel...
 			// shouldn't require too many changes?
 			
+			NSMutableArray<CacheImage*>* images=NSMutableArray.alloc.init.autorelease;
+			
 			for(int index=2;index<argc;index++)
 			{
 				NSString* prefix=[NSString stringWithUTF8String:argv[index]];
-				NSArray<CacheImage*>* images=[cache imagesWithPathPrefix:prefix];
-				
-				trace(@"matched %x images for prefix %@*",images.count,prefix);
-				
-				for(CacheImage* image in images)
+				NSArray<CacheImage*>* subset=[cache imagesWithPathPrefix:prefix];
+				if(subset.count==0)
 				{
-					extract(cache,image);
+					trace(@"no images found for %@*",prefix);
+					abort();
 				}
+				[images addObjectsFromArray:subset];
+			}
+			
+			trace(@"matched %x images",images.count);
+				
+			for(CacheImage* image in images)
+			{
+				extract(cache,image);
 			}
 		}
 		

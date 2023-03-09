@@ -2,6 +2,8 @@
 
 -(instancetype)initWithPathPrefix:(NSString*)prefix
 {
+	trace(@"reading %@",prefix);
+	
 	NSMutableArray<CacheFile*>* files=NSMutableArray.alloc.init.autorelease;
 	
 	CacheFile* file=[CacheFile.alloc initWithPath:prefix].autorelease;
@@ -37,7 +39,9 @@
 	
 	self.files=files;
 	
-	trace(@"os version %d.%d.%d",self.majorVersion,self.minorVersion,self.subMinorVersion);
+	trace(@"os version %d.%d.%d, subcache count %x",self.majorVersion,self.minorVersion,self.subMinorVersion,files.count);
+	
+	self.findMagicSel;
 	
 	return self;
 }
@@ -145,6 +149,32 @@
 	}
 	
 	return nil;
+}
+
+-(void)findMagicSel
+{
+	CacheImage* image=[self imagesWithPathPrefix:@"/usr/lib/libobjc.A.dylib"].firstObject;
+	assert(image);
+	
+	struct section_64* section=[image.header sectionCommandWithName:(char*)"__objc_selrefs"];
+	assert(section);
+	
+	long* refs=(long*)wrapOffset(image.file,section->offset).pointer;
+	int count=section->size/sizeof(long*);
+	
+	for(int index=0;index<count;index++)
+	{
+		char* name=wrapAddress(self,refs[index]).pointer;
+		
+		if(name&&!strcmp(name,"\xf0\x9f\xa4\xaf"))
+		{
+			self.magicSelAddress=refs[index];
+			trace(@"found magic selector at %lx",self.magicSelAddress);
+			break;
+		}
+	}
+	
+	assert(self.magicSelAddress);
 }
 
 @end

@@ -1,6 +1,6 @@
 # dsce
 
-Incomplete macOS 12+ dyld cache extractor. Used by [OCLP](https://github.com/dortania/Opencore-Legacy-Patcher/) to support some legacy GPUs and Wi-Fi hardware. Produces working images in many cases, but treat outputs with extreme suspicion...
+Incomplete macOS 12+ dyld cache extractor. Used by [OCLP](https://github.com/dortania/Opencore-Legacy-Patcher/) to support some legacy GPUs and Wi-Fi hardware. Produces working binaries in many cases, but treat outputs with extreme suspicion...
 
 ## credits
 

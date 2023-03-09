@@ -109,37 +109,56 @@
 	}
 	
 	self.exports=exports;
-}
-
-// TODO: slow
-
--(Address*)exportWithAddress:(long)address
-{
-	for(Address* item in self.exports)
-	{
-		if(item.address==address)
-		{
-			return item;
-		}
-	}
 	
-	return nil;
-}
-
--(Address*)reexportWithName:(NSString*)name
-{
-	for(Address* item in self.exports)
+	NSMutableDictionary<NSNumber*,Address*>* byAddress=NSMutableDictionary.alloc.init.autorelease;
+	NSMutableDictionary<NSString*,Address*>* byName=NSMutableDictionary.alloc.init.autorelease;
+	
+	for(Address* item in exports)
 	{
+		if(item.address!=0)
+		{
+			byAddress[[NSNumber numberWithLong:item.address]]=item;
+		}
+		
 		if(item.isReexport)
 		{
-			if([item.name isEqual:name]||[item.importName isEqual:name])
+			byName[item.name]=item;
+			if(item.importName&&item.importName.length!=0)
 			{
-				return item;
+				byName[item.importName]=item;
 			}
 		}
 	}
 	
-	return nil;
+	self.fastExportsByAddress=byAddress;
+	self.fastReexportsByName=byName;
+}
+
+-(Address*)exportWithAddress:(long)address
+{
+	return self.fastExportsByAddress[[NSNumber numberWithLong:address]];
+}
+
+-(Address*)reexportWithName:(NSString*)name
+{
+	return self.fastReexportsByName[name];
+}
+
+-(NSArray<NSNumber*>*)enclosingChunksWithSize:(long)chunkSize
+{
+	NSMutableArray<NSNumber*>* result=NSMutableArray.alloc.init.autorelease;
+	
+	[self.header forEachSegmentCommand:^(struct segment_command_64* command)
+	{
+		long startChunk=command->vmaddr/chunkSize;
+		long endChunk=(command->vmaddr+command->vmsize-1)/chunkSize;
+		for(long chunk=startChunk;chunk<=endChunk;chunk++)
+		{
+			[result addObject:[NSNumber numberWithLong:chunk]];
+		}
+	}];
+	
+	return result;
 }
 
 @end

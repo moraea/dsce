@@ -1,6 +1,7 @@
 @interface CacheSet:NSObject<LocationBase>
 
 @property(retain) NSArray<CacheFile*>* files;
+@property(assign) long magicSelAddress;
 
 -(instancetype)initWithPathPrefix:(NSString*)prefix;
 

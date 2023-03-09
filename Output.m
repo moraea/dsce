@@ -61,11 +61,11 @@ BOOL isAligned(long address,int amount)
 	return self;
 }
 
-// TODO: calling this multiple times on one instance would be bad
-
 -(void)extractWithPath:(NSString*)outPath
 {
-	NSArray<NSString*>* steps=@[@"stepImportHeader",@"stepImportSegmentsExceptLinkedit",@"stepImportRebases",@"stepImportExports",@"stepFixImageInfo",@"stepFindMagicSel",@"stepFindEmbeddedSels",@"stepFixSelRefs",@"stepFixClasses",@"stepFixCats",@"stepFixProtoRefs",@"stepFixProtos",@"stepFixPointersNew",@"stepBuildLinkedit",@"stepMarkUUID",@"stepSyncHeader"];
+	NSArray<NSString*>* steps=@[@"stepImportHeader",@"stepImportSegmentsExceptLinkedit",@"stepImportRebases",@"stepImportExports",@"stepFixImageInfo",@"stepFindEmbeddedSels",@"stepFixSelRefs",@"stepFixClasses",@"stepFixCats",@"stepFixProtoRefs",@"stepFixProtos",@"stepFixPointersNew",@"stepBuildLinkedit",@"stepMarkUUID",@"stepSyncHeader"];
+	
+	assert(!self.header);
 	
 	for(NSString* step in steps)
 	{
@@ -716,20 +716,18 @@ BOOL isAligned(long address,int amount)
 {
 	self.fixups=NSMutableDictionary.alloc.init.autorelease;
 	
-	// TODO: extremely slow, could find bounds via binary search, or at least exit early
+	// TODO: almost like duplication with LocationBase protocol... not quite
 	
-	for(NSNumber* rebase in self.cacheImage.file.rebaseAddresses)
+	[self.header forEachSectionCommand:^(struct segment_command_64* segment,struct section_64* section)
 	{
-		Location* location=wrapAddressUnsafe(self,rebase.longValue);
+		NSArray<NSNumber*>* rebases=[self.cacheImage.file rebasesWithStartAddress:section->addr endAddress:section->addr+section->size];
 		
-		if(!location)
+		for(NSNumber* rebase in rebases)
 		{
-			continue;
+			NSNumber* key=[NSNumber numberWithLong:rebase.longValue];
+			self.fixups[key]=[Address rebaseWithAddress:rebase.longValue];
 		}
-		
-		NSNumber* key=[NSNumber numberWithLong:location.address];
-		self.fixups[key]=[Address rebaseWithAddress:location.address];
-	}
+	}];
 	
 	trace(@"found %x rebases",self.fixups.count);
 }
@@ -754,37 +752,7 @@ BOOL isAligned(long address,int amount)
 	
 	// prevents crash in map_images_nolock
 	
-	int oldFlags=info->flags;
 	info->flags&=~OptimizedByDyld;
-	
-	trace(@"objc version %x flags %x (was %x)",info->version,info->flags,oldFlags);
-}
-
-// TODO: move to Cache
-
--(void)stepFindMagicSel
-{
-	CacheImage* image=[self.cache imagesWithPathPrefix:@"/usr/lib/libobjc.A.dylib"].firstObject;
-	assert(image);
-	
-	struct section_64* section=[image.header sectionCommandWithName:(char*)"__objc_selrefs"];
-	assert(section);
-	
-	long* refs=(long*)wrapOffset(image.file,section->offset).pointer;
-	int count=section->size/sizeof(long*);
-	
-	for(int index=0;index<count;index++)
-	{
-		char* name=wrapAddress(self.cache,refs[index]).pointer;
-		
-		if(name&&!strcmp(name,"\xf0\x9f\xa4\xaf"))
-		{
-			self.magicSelAddress=refs[index];
-			break;
-		}
-	}
-	
-	assert(self.magicSelAddress);
 }
 
 // selector strings get uniqued and copied to libobjc, but originals remain (for now)
@@ -1030,7 +998,7 @@ BOOL isAligned(long address,int amount)
 			
 			struct objc_relative_method* method=(struct objc_relative_method*)(methods+sizeof(struct objc_relative_method)*index);
 			
-			long nameAddress=method->name+self.magicSelAddress;
+			long nameAddress=method->name+self.cache.magicSelAddress;
 			NSString* name=[NSString stringWithUTF8String:wrapAddress(self.cache,nameAddress).pointer];
 			
 			long address=[self selRefAddressWithName:name];
@@ -1113,7 +1081,7 @@ BOOL isAligned(long address,int amount)
 			else
 			{
 				// TODO: this should never happen...
-				// indicates either bugs, or better addend heuristic?
+				// indicates either bugs, or need better addend heuristic?
 				
 				unresolvedCount++;
 				continue;
@@ -1124,9 +1092,9 @@ BOOL isAligned(long address,int amount)
 		int ordinal=[self.header ordinalWithDylibPath:image.path cache:self.cache symbol:name newSymbolOut:&name];
 		if(ordinal==-1)
 		{
-			// resolved to a particular image+symbol, but can't reach that image via imports
+			// resolved to a particular symbol + image, but can't reach that image via imports
 			// TODO: often occurs due to __got uniquing, should never happen otherwise
-			// at least we should detect which of the two it is...
+			// at minimum, detect which of the two it is...
 			
 			unreachableCount++;
 			continue;
@@ -1142,8 +1110,6 @@ BOOL isAligned(long address,int amount)
 -(void)stepMarkUUID
 {
 	struct uuid_command* command=(struct uuid_command*)[self.header commandWithType:LC_UUID];
-	
-	// memcpy(command->uuid,"Amy",4);
 	
 	assert(DSCE_VERSION<0x100);
 	char info[4]={};
