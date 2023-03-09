@@ -2,7 +2,11 @@
 
 -(instancetype)init;
 {
-	self.data=NSMutableData.alloc.init.autorelease;
+	// TODO: some Output operations use addCommand: without reloading pointers
+	// which causes crashes when the NSMutableData backing gets enlarged
+	// preallocating should prevent this, but it's ugly and not explicitly documented
+	
+	self.data=[NSMutableData dataWithCapacity:0x10000];
 	
 	return self;
 }
@@ -21,12 +25,6 @@
 {
 	self=self.init;
 	
-	// TODO: some Output operations use addCommand: inside a forEach*
-	// this can (and does) randomly corrupt pointers if the NSMutableData backing is copied
-	// preallocating it should prevent this, but it's (1) ugly (2) not explicitly documented
-	
-	self.data=[NSMutableData dataWithCapacity:0x10000];
-	
 	[self.data increaseLengthBy:sizeof(struct mach_header_64)];
 	
 	// TODO: check
@@ -35,7 +33,6 @@
 	self.header->cputype=CPU_TYPE_X86_64;
 	self.header->cpusubtype=CPU_SUBTYPE_X86_64_ALL;
 	self.header->filetype=MH_DYLIB;
-	// self.header->flags=MH_DYLDLINK|MH_BINDS_TO_WEAK|MH_TWOLEVEL|MH_ROOT_SAFE|MH_SETUID_SAFE;
 	
 	return self;
 }
@@ -90,7 +87,8 @@
 	
 	[self forEachSegmentCommand:^(struct segment_command_64* command)
 	{
-		if(!strncmp(command->segname,name,strlen(name)))
+		int length=MIN(16,MAX(strlen(command->segname),strlen(name)));
+		if(!strncmp(command->segname,name,length))
 		{
 			assert(!output);
 			output=command;
@@ -168,9 +166,10 @@
 	
 	[self forEachSectionCommand:^(struct segment_command_64* segment,struct section_64* command)
 	{
-		// 16 char sectname runs into sectname
+		// hack to avoid matching subsets or overrunning into segname
 		
-		if(!strncmp(command->sectname,name,16))
+		int length=MIN(16,MAX(strlen(command->sectname),strlen(name)));
+		if(!strncmp(command->sectname,name,length))
 		{
 			assert(!output);
 			output=command;
@@ -190,6 +189,95 @@
 	
 	self.header->ncmds++;
 	self.header->sizeofcmds+=command->cmdsize;
+}
+
+// TODO: everything below here is a bit weird, refactor? move to other classes?
+
+-(NSArray<NSString*>*)dylibPathsReexportOnly:(BOOL)reexportOnly
+{
+	NSMutableArray* result=NSMutableArray.alloc.init.autorelease;
+	
+	[self forEachCommand:^(struct load_command* command)
+	{
+		if(command->cmd==LC_LOAD_DYLIB||command->cmd==LC_LOAD_WEAK_DYLIB||command->cmd==LC_LOAD_UPWARD_DYLIB||command->cmd==LC_REEXPORT_DYLIB)
+		{
+			if(!reexportOnly||command->cmd==LC_REEXPORT_DYLIB)
+			{
+				int nameOffset=((struct dylib_command*)command)->dylib.name.offset;
+				NSString* name=[NSString stringWithUTF8String:(char*)command+nameOffset];
+				[result addObject:name];
+			}
+		}
+	}];
+	
+	return result;
+}
+
+-(NSArray<NSString*>*)reexportedDylibPaths
+{
+	return [self dylibPathsReexportOnly:true];
+}
+
+-(NSArray<NSString*>*)dylibPaths
+{
+	return [self dylibPathsReexportOnly:false];
+}
+
+-(NSArray<NSString*>*)reexportedDylibPathsRecursiveWithCache:(CacheSet*)cache
+{
+	NSMutableArray* result=NSMutableArray.alloc.init.autorelease;
+	[result addObjectsFromArray:self.reexportedDylibPaths];
+	
+	for(NSString* path in self.reexportedDylibPaths)
+	{
+		CacheImage* image=[cache imageWithPath:path];
+		assert(image);
+		[result addObjectsFromArray:[image.header reexportedDylibPathsRecursiveWithCache:cache]];
+	}
+	
+	return result;
+}
+
+-(int)ordinalWithDylibPath:(NSString*)target cache:(CacheSet*)cache symbol:(NSString*)symbol newSymbolOut:(NSString**)newSymbolOut
+{
+	NSArray<NSString*>* shallowPaths=self.dylibPaths;
+	long shallowFound=[shallowPaths indexOfObject:target];
+	if(shallowFound!=NSNotFound)
+	{
+		return shallowFound+1;
+	}
+	
+	for(int index=0;index<shallowPaths.count;index++)
+	{
+		CacheImage* image=[cache imageWithPath:shallowPaths[index]];
+		assert(image);
+		
+		NSArray<NSString*>* deepPaths=[image.header reexportedDylibPathsRecursiveWithCache:cache];
+		if([deepPaths containsObject:target])
+		{
+			return index+1;
+		}
+		
+		Address* reexport=[image reexportWithName:symbol];
+		if(reexport)
+		{
+			*newSymbolOut=reexport.name;
+			return index+1;
+		}
+		
+		for(NSString* deepPath in deepPaths)
+		{
+			CacheImage* image=[cache imageWithPath:deepPath];
+			Address* reexport=[image reexportWithName:symbol];
+			if(reexport)
+			{
+				*newSymbolOut=reexport.name;
+				return index+1;
+			}
+		}
+	}
+	
+	return -1;
 }
 
 @end

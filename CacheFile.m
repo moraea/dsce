@@ -10,14 +10,56 @@
 		return nil;
 	}
 	
-	self.header=(struct dyld_cache_header*)self.data.bytes;
-	
 	self.loadImages;
 	self.loadRebases;
 	
 	trace(@"loaded %@ (%x images, %x rebases)",path,self.images.count,self.rebaseAddresses.count);
 	
 	return self;
+}
+
+-(long)maxConstDataMappingAddress
+{
+	__block long max=0;
+	
+	[self forEachMapping:^(struct dyld_cache_mapping_and_slide_info* info)
+	{
+		if(info->flags==DYLD_CACHE_MAPPING_CONST_DATA)
+		{
+			assert(max==0);
+			max=info->address+info->size;
+		}
+	}];
+	
+	assert(max!=0);
+	return max;
+}
+
+-(long)maxConstDataSegmentAddress
+{
+	long mappingEnd=self.maxConstDataMappingAddress;
+	
+	__block long max=0;
+	
+	for(CacheImage* image in self.images)
+	{
+		[image.header forEachSegmentCommand:^(struct segment_command_64* command)
+		{
+			long end=command->vmaddr+command->vmsize;
+			if(end<mappingEnd)
+			{
+				max=MAX(max,end);
+			}
+		}];
+	}
+	
+	assert(max!=0);
+	return max;
+}
+
+-(struct dyld_cache_header*)header
+{
+	return (struct dyld_cache_header*)self.data.bytes;
 }
 
 -(void)forEachMapping:(void (^)(struct dyld_cache_mapping_and_slide_info*))block
@@ -91,13 +133,13 @@
 
 -(void)loadImages
 {
-	NSMutableArray<Image*>* images=NSMutableArray.alloc.init.autorelease;
+	NSMutableArray<CacheImage*>* images=NSMutableArray.alloc.init.autorelease;
 	
 	struct dyld_cache_image_info* infos=(struct dyld_cache_image_info*)wrapOffset(self,self.header->imagesOffset).pointer;
 	
 	for(int index=0;index<self.header->imagesCount;index++)
 	{
-		Image* image=[Image.alloc initWithCacheFile:self info:&infos[index]].autorelease;
+		CacheImage* image=[CacheImage.alloc initWithCacheFile:self info:&infos[index]].autorelease;
 		if(image)
 		{
 			[images addObject:image];
@@ -161,14 +203,29 @@
 		return first.longValue<second.longValue?NSOrderedAscending:NSOrderedDescending;
 	}];
 	
+	// TODO: use Address? does it matter?
+	
 	self.rebaseAddresses=addresses;
 }
 
--(NSArray<Image*>*)imagesWithPathPrefix:(NSString*)path
+-(CacheImage*)imageWithPath:(NSString*)path
 {
-	NSMutableArray<Image*>* result=NSMutableArray.alloc.init.autorelease;
+	for(CacheImage* image in self.images)
+	{
+		if([image.path isEqual:path])
+		{
+			return image;
+		}
+	}
 	
-	for(Image* image in self.images)
+	return nil;
+}
+
+-(NSArray<CacheImage*>*)imagesWithPathPrefix:(NSString*)path
+{
+	NSMutableArray<CacheImage*>* result=NSMutableArray.alloc.init.autorelease;
+	
+	for(CacheImage* image in self.images)
 	{
 		if([image.path hasPrefix:path])
 		{
@@ -179,9 +236,9 @@
 	return result;
 }
 
--(Image*)imageWithAddress:(long)address
+-(CacheImage*)imageWithAddress:(long)address
 {
-	for(Image* image in self.images)
+	for(CacheImage* image in self.images)
 	{
 		if([image.header segmentCommandWithAddress:address indexOut:NULL])
 		{

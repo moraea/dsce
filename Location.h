@@ -1,5 +1,3 @@
-// possibly over-engineered address/offset/pointer abstraction
-
 @interface Location:NSObject
 
 @property(assign) NSObject<LocationBase>* base;

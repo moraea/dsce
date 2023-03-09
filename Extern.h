@@ -1,13 +1,13 @@
 @import Foundation;
 @import MachO.nlist;
 
+// TODO: works as of 2023-3-2 but not stable across Apple opensource releases
+// i had to adjust clang command as well this time
+
 #import "dyld/cache-builder/dyld_cache_format.h"
 #import "dyld/cache-builder/Trie.hpp"
 
-// prevents __BRIDGEOS_UNAVAILABLE error
-
-#define __APPLE_BLEACH_SDK__ 1
-
+#define OBJC_DECLARE_SYMBOLS 1
 #import "objc4/runtime/objc-abi.h"
 
 // TODO: pasted from various places, check

@@ -2,12 +2,17 @@ set -e
 
 cd "$(dirname "$0")"
 
-clang++ -fmodules -fcxx-modules -std=c++17 -Wno-unused-getter-return-value -I .. Main.mm -o Extract
+clang++ -fmodules -fcxx-modules -std=c++17 -Wno-unused-getter-return-value -mmacosx-version-min=12 -I .. -I ../dyld/common Main.mm -o Extract
 
 rm -rf Out
 
-./Extract ../125/dyld_shared_cache_x86_64 /System/Library/Extensions/AMDMTLBronzeDriver /System/Library/Extensions/AMDShared /System/Library/Frameworks/Metal.framework /System/Library/Frameworks/MetalPerformanceShaders.framework
+# ./Extract /Volumes/126/System/Library/dyld/dyld_shared_cache_x86_64 /System/Library/Extensions/AMDRadeonVADriver2.bundle
+
+./Extract /System/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64 /System/Library/Frameworks/AppKit.framework /System/Library/Frameworks/QuartzCore.framework /System/Library/Frameworks/CoreGraphics.framework /System/Library/Frameworks/Carbon.framework /System/Library/PrivateFrameworks/RenderBox.framework /System/Library/PrivateFrameworks/VectorKit.framework /System/Library/Frameworks/Metal.framework /System/Library/Frameworks/MetalPerformanceShaders.framework /System/Library/PrivateFrameworks/MTLCompiler.framework /System/Library/PrivateFrameworks/GPUCompiler.framework
 
 find -d Out -type f -exec codesign -f -s - {} \;
+chmod -R 755 Out
 
-# DYLD_FRAMEWORK_PATH=$PWD/Out/System/Library/Frameworks:$PWD/Out/System/Library/PrivateFrameworks /System/Applications/TextEdit.app/Contents/MacOS/TextEdit
+# mount -uw /
+# cp -R Out/ /
+# reboot

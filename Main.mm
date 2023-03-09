@@ -1,3 +1,5 @@
+#define DSCE_VERSION 3
+
 // TODO: use a Makefile already, this is ridiculous
 
 #import "Extern.h"
@@ -9,41 +11,36 @@ void trace(NSString* format,...)
 	NSString* message=[NSString.alloc initWithFormat:format arguments:args].autorelease;
 	va_end(args);
 	
-	printf("\e[%dm%s\e[0m\n",34,message.UTF8String);
+	printf("\e[%dm%s\e[0m\n",35,message.UTF8String);
 }
 
 #import "LocationBase.h"
 #import "Location.h"
-@class Image;
+@class CacheImage;
 #import "CacheFile.h"
+@class CacheSet;
 #import "ImageHeader.h"
-#import "Symbol.h"
-#import "Image.h"
-#import "Cache.h"
-#import "Rebase.h"
-#import "Bind.h"
+#import "Address.h"
+#import "CacheImage.h"
+#import "CacheSet.h"
 #import "Selector.h"
-#import "MoveRecord.h"
 #import "Output.h"
 
 #import "Location.m"
 #import "CacheFile.m"
 #import "ImageHeader.m"
-#import "Symbol.m"
-#import "Image.m"
-#import "Cache.m"
-#import "Rebase.m"
-#import "Bind.m"
+#import "Address.m"
+#import "CacheImage.m"
+#import "CacheSet.m"
 #import "Selector.m"
-#import "MoveRecord.m"
 #import "Output.m"
 
-void extract(Cache* cache,Image* image)
+void extract(CacheSet* cache,CacheImage* image)
 {
-	// draining is very slow, and per-image memory use is insignificant compared to the whole cache
-	// TODO: re-enable and check for leaks once extracting many images is feasible
+	// TODO: genuinely needed now to prevent being jettisoned on runs of several images
+	// that is insane... fix it
 	
-	// @autoreleasepool
+	@autoreleasepool
 	{
 		double startTime=NSDate.date.timeIntervalSince1970;
 		
@@ -63,6 +60,8 @@ int main(int argc,char** argv)
 	
 	// @autoreleasepool
 	{
+		trace(@"amy's dsce v%d",DSCE_VERSION);
+		
 		if(argc<3)
 		{
 			trace(@"usage: %s <cache> ( <image prefix> ... | list )",argv[0]);
@@ -72,32 +71,37 @@ int main(int argc,char** argv)
 		double startTime=NSDate.date.timeIntervalSince1970;
 		
 		NSString* cachePath=[NSString stringWithUTF8String:argv[1]];
-		Cache* cache=[Cache.alloc initWithPathPrefix:cachePath].autorelease;
+		CacheSet* cache=[CacheSet.alloc initWithPathPrefix:cachePath].autorelease;
 		assert(cache);
 		
 		NSString* keyword=[NSString stringWithUTF8String:argv[2]];
 		
+		// TODO: cringe
+		
 		if([keyword isEqual:@"list"])
 		{
-			NSArray<Image*>* images=[cache imagesWithPathPrefix:@"/"];
+			NSArray<CacheImage*>* images=[cache imagesWithPathPrefix:@"/"];
 			
 			trace(@"listing %x images",images.count);
 			
-			for(Image* image in images)
+			for(CacheImage* image in images)
 			{
 				trace(@"%@",image.path);
 			}
 		}
 		else
 		{
+			// TODO: i wonder what would happen if i ran a few of these in parallel...
+			// shouldn't require too many changes?
+			
 			for(int index=2;index<argc;index++)
 			{
 				NSString* prefix=[NSString stringWithUTF8String:argv[index]];
-				NSArray<Image*>* images=[cache imagesWithPathPrefix:prefix];
+				NSArray<CacheImage*>* images=[cache imagesWithPathPrefix:prefix];
 				
 				trace(@"matched %x images for prefix %@*",images.count,prefix);
 				
-				for(Image* image in images)
+				for(CacheImage* image in images)
 				{
 					extract(cache,image);
 				}
