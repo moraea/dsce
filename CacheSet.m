@@ -2,7 +2,7 @@
 
 -(instancetype)initWithPathPrefix:(NSString*)prefix
 {
-	trace(@"reading %@",prefix);
+	trace(@"read %@",prefix);
 	
 	NSMutableArray<CacheFile*>* files=NSMutableArray.alloc.init.autorelease;
 	

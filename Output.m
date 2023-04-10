@@ -1,3 +1,10 @@
+#define IMPOSTOR_OBJC_TEMP "dsce.objc"
+#define IMPOSTOR_OBJC_OLD "dsce.objc.old"
+#define IMPOSTOR_GOT "dsce.got"
+#define IMPOSTOR_PAD "dsce.pad"
+#define HEADER_EXTRA 0x1000
+#define IMPORT_HACK_OFFSET 0x1000000000
+
 // https://en.wikipedia.org/wiki/LEB128
 
 NSData* ulebWithLong(long value)
@@ -42,8 +49,6 @@ BOOL isAligned(long address,int amount)
 
 +(void)runWithCache:(CacheSet*)cache image:(CacheImage*)image outPath:(NSString*)outPath
 {
-	trace(@"extract %@",image.path);
-	
 	Output* output=[Output.alloc initWithCache:cache image:image].autorelease;
 	[output extractWithPath:outPath];
 }
@@ -63,14 +68,23 @@ BOOL isAligned(long address,int amount)
 
 -(void)extractWithPath:(NSString*)outPath
 {
-	NSArray<NSString*>* steps=@[@"stepImportHeader",@"stepImportSegmentsExceptLinkedit",@"stepImportRebases",@"stepImportExports",@"stepFixImageInfo",@"stepFindEmbeddedSels",@"stepFixSelRefs",@"stepFixClasses",@"stepFixCats",@"stepFixProtoRefs",@"stepFixProtos",@"stepFixPointersNew",@"stepBuildLinkedit",@"stepMarkUUID",@"stepSyncHeader"];
-	
 	assert(!self.header);
 	
-	for(NSString* step in steps)
-	{
-		[self performSelector:NSSelectorFromString(step)];
-	}
+	self.stepImportHeader;
+	self.stepImportSegmentsExceptLinkedit;
+	self.stepImportRebases;
+	self.stepImportExports;
+	self.stepFixImageInfo;
+	self.stepFindEmbeddedSels;
+	self.stepFixSelRefs;
+	self.stepFixClasses;
+	self.stepFixCats;
+	self.stepFixProtoRefs;
+	self.stepFixProtos;
+	self.stepFixPointersNew;
+	self.stepBuildLinkedit;
+	self.stepMarkUUID;
+	self.stepSyncHeader;
 	
 	trace(@"write %@",outPath);
 	[self.data writeToFile:outPath atomically:false];
@@ -78,7 +92,7 @@ BOOL isAligned(long address,int amount)
 
 -(BOOL)needsObjcImpostor
 {
-	return !![self.cacheImage.header sectionCommandWithName:(char*)"__objc_imageinfo"];
+	return !self.shouldMakeContiguous&&!![self.cacheImage.header sectionCommandWithName:(char*)"__objc_imageinfo"];
 }
 
 -(BOOL)needsGotImpostor
@@ -98,6 +112,11 @@ BOOL isAligned(long address,int amount)
 	}
 	
 	return false;
+}
+
+-(BOOL)shouldMakeContiguous
+{
+	return flagPad;
 }
 
 -(void)stepImportHeader
@@ -128,6 +147,11 @@ BOOL isAligned(long address,int amount)
 		{
 			if(command->vmaddr==address.longValue)
 			{
+				// prevent offset collisions mid-import by temporarily adding an implausible amount
+				// TODO: a horrible hack, but requires significant refactoring to fix
+				
+				command->fileoff+=IMPORT_HACK_OFFSET;
+				
 				[self.header addCommand:(struct load_command*)command];
 				
 				copied++;
@@ -145,14 +169,12 @@ BOOL isAligned(long address,int amount)
 					struct segment_command_64* impostor=(struct segment_command_64*)impostorData.mutableBytes;
 					impostor->cmd=LC_SEGMENT_64;
 					impostor->cmdsize=impostorSize;
-					memcpy(impostor->segname,SEG_DATA,strlen(SEG_DATA));
+					memcpy(impostor->segname,IMPOSTOR_OBJC_TEMP,strlen(IMPOSTOR_OBJC_TEMP)+1);
 					impostor->maxprot=VM_PROT_READ;
 					impostor->initprot=VM_PROT_READ;
 					impostor->nsects=1;
 					
 					[self.header addCommand:(struct load_command*)impostor];
-					
-					// finished when importing segments
 				}
 				
 				// Ventura cache builder uniques __got sections into a region outside all images
@@ -161,6 +183,13 @@ BOOL isAligned(long address,int amount)
 				
 				if(self.needsGotImpostor&&!strcmp(command->segname,"__DATA_CONST"))
 				{
+					if(self.shouldMakeContiguous)
+					{
+						// unlike objc impostor, there's a gap here
+						
+						self.addPadCommandCommon;
+					}
+					
 					int impostorSize=sizeof(struct segment_command_64)+sizeof(struct section_64);
 					
 					NSMutableData* impostorData=[NSMutableData dataWithLength:impostorSize];
@@ -168,17 +197,23 @@ BOOL isAligned(long address,int amount)
 					struct segment_command_64* impostor=(struct segment_command_64*)impostorData.mutableBytes;
 					impostor->cmd=LC_SEGMENT_64;
 					impostor->cmdsize=impostorSize;
-					memcpy(impostor->segname,"dsce.got",9);
+					memcpy(impostor->segname,IMPOSTOR_GOT,strlen(IMPOSTOR_GOT)+1);
 					
 					// must be writable for binding
 					
 					impostor->maxprot=VM_PROT_READ|VM_PROT_WRITE;
-					impostor->initprot=VM_PROT_READ| VM_PROT_WRITE;
+					impostor->initprot=VM_PROT_READ|VM_PROT_WRITE;
 					impostor->nsects=1;
 					
-					[self.header addCommand:(struct load_command*)impostor];
+					long gotStartAddress=align(self.cacheImage.file.maxConstDataSegmentAddress,0x1000,false,NULL);
+					impostor->vmaddr=gotStartAddress;
 					
-					// finished when importing segments
+					[self.header addCommand:(struct load_command*)impostor];
+				}
+				
+				if(self.shouldMakeContiguous&&strcmp(command->segname,SEG_LINKEDIT))
+				{
+					self.addPadCommandCommon;
 				}
 			}
 		}];
@@ -218,6 +253,17 @@ BOOL isAligned(long address,int amount)
 	trace(@"copied %x load commands (skipped %x)",copied,skipped);
 }
 
+-(void)addPadCommandCommon
+{
+	int size=sizeof(struct segment_command_64)+sizeof(struct section_64);
+	NSMutableData* data=[NSMutableData dataWithLength:size];
+	struct segment_command_64* seg=(struct segment_command_64*)data.mutableBytes;
+	seg->cmd=LC_SEGMENT_64;
+	seg->cmdsize=size;
+	memcpy(seg->segname,IMPOSTOR_PAD,strlen(IMPOSTOR_PAD)+1);
+	[self.header addCommand:(struct load_command*)seg];
+}
+
 -(void)stepImportSegmentsExceptLinkedit
 {
 	// TODO: similar problem and workaround as ImageHeader
@@ -241,8 +287,6 @@ BOOL isAligned(long address,int amount)
 	
 	[self.header forEachSegmentCommand:^(struct segment_command_64* command)
 	{
-		// TODO: weird
-		
 		struct segment_command_64* prevCommand=nextPrevCommand;
 		nextPrevCommand=command;
 		
@@ -252,8 +296,9 @@ BOOL isAligned(long address,int amount)
 			return;
 		}
 		
-		if(self.needsObjcImpostor&&prevCommand&&!strcmp(prevCommand->segname,SEG_TEXT))
+		if(self.needsObjcImpostor&&!strcmp(command->segname,IMPOSTOR_OBJC_TEMP))
 		{
+			memcpy(command->segname,SEG_DATA,strlen(SEG_DATA)+1);
 			command->vmaddr=prevCommand->vmaddr+prevCommand->vmsize;
 			command->fileoff=self.data.length;
 			command->vmsize=0x1000;
@@ -272,26 +317,24 @@ BOOL isAligned(long address,int amount)
 			[self.data increaseLengthBy:0x1000];
 			memcpy(info,originalInfo,sizeof(objc_image_info));
 			
-			memcpy(impostor->segname,SEG_DATA,strlen(SEG_DATA));
+			memcpy(impostor->segname,SEG_DATA,strlen(SEG_DATA)+1);
 			memcpy(impostor->sectname,"__objc_imageinfo",16);
 			
-			trace(@"created __objc_imageinfo impostor");
+			trace(@"created fake __objc_imageinfo section");
 			
 			return;
 		}
 		
-		if(!strcmp(command->segname,"dsce.got"))
+		if(!strcmp(command->segname,IMPOSTOR_GOT))
 		{
 			// no obvious way to locate this section, but (so far) it's consistently at the end
 			// of the read-only data mapping
 			// TODO: may be brittle, and copies slightly more than necessary
 			
-			long gotStartAddress=align(self.cacheImage.file.maxConstDataSegmentAddress,0x1000,false,NULL);
 			long gotEndAddress=self.cacheImage.file.maxConstDataMappingAddress;
-			long gotLength=gotEndAddress-gotStartAddress;
+			long gotLength=gotEndAddress-command->vmaddr;
 			assert(isAligned(gotEndAddress,0x1000));
 			
-			command->vmaddr=gotStartAddress;
 			command->fileoff=self.data.length;
 			command->vmsize=gotLength;
 			command->filesize=gotLength;
@@ -300,20 +343,59 @@ BOOL isAligned(long address,int amount)
 			impostor->offset=command->fileoff;
 			impostor->addr=command->vmaddr;
 			impostor->size=gotLength;
-			memcpy(impostor->sectname,command->segname,strlen(command->segname));
-			memcpy(impostor->segname,command->segname,strlen(command->segname));
+			memcpy(impostor->sectname,IMPOSTOR_GOT,strlen(IMPOSTOR_GOT)+1);
+			memcpy(impostor->segname,IMPOSTOR_GOT,strlen(IMPOSTOR_GOT)+1);
 			
 			char* destination=wrapOffset(self,impostor->offset).pointer;
-			char* source=wrapAddress(self.cacheImage.file,gotStartAddress).pointer;
+			char* source=wrapAddress(self.cache,command->vmaddr).pointer;
 			[self.data increaseLengthBy:gotLength];
 			memcpy(destination,source,gotLength);
 			
-			trace(@"copied uniqued __got section (source %lx, length %lx)",gotStartAddress,gotLength);
+			trace(@"restored __got section (source %lx, length %lx)",command->vmaddr,gotLength);
 			
 			return;
 		}
 		
-		trace(@"building %s",command->segname);
+		if(!strcmp(command->segname,IMPOSTOR_PAD))
+		{
+			command->vmaddr=prevCommand->vmaddr+prevCommand->vmsize;
+			command->fileoff=self.data.length;
+			command->nsects=1;
+			
+			// TODO: questionable
+			
+			__block struct segment_command_64* nextSeg=NULL;
+			[self.header forEachSegmentCommand:^(struct segment_command_64* seg)
+			{
+				if(!nextSeg&&seg->vmaddr>command->vmaddr)
+				{
+					nextSeg=seg;
+				}
+			}];
+			long delta=align(nextSeg->vmaddr,0x1000,false,NULL)-command->vmaddr;
+			
+			command->vmsize=delta;
+			command->filesize=delta;
+			
+			struct section_64* sect=(struct section_64*)(command+1);
+			sect->offset=command->fileoff;
+			sect->addr=command->vmaddr;
+			sect->size=delta;
+			memcpy(sect->sectname,IMPOSTOR_PAD,strlen(IMPOSTOR_PAD)+1);
+			memcpy(sect->segname,IMPOSTOR_PAD,strlen(IMPOSTOR_PAD)+1);
+			
+			[self.data increaseLengthBy:delta];
+			
+			trace(@"added %lx padding at %lx",delta,command->vmaddr);
+			
+			return;
+		}
+		
+		trace(@"build %s",command->segname);
+		
+		// TODO: second half of an awful hack
+		
+		command->fileoff-=IMPORT_HACK_OFFSET;
 		
 		NSMutableData* data=NSMutableData.alloc.init.autorelease;
 		
@@ -327,6 +409,12 @@ BOOL isAligned(long address,int amount)
 		
 		long newSegOffset=self.data.length;
 		assert(isAligned(newSegOffset,0x1000));
+		
+		if(newSegOffset==0)
+		{
+			newSegAddress-=HEADER_EXTRA;
+			addressDelta-=HEADER_EXTRA;
+		}
 		
 		[data increaseLengthBy:-addressDelta];
 		
@@ -347,7 +435,7 @@ BOOL isAligned(long address,int amount)
 				
 				if(self.needsObjcImpostor&&!strncmp(section->sectname,"__objc_imageinfo",16))
 				{
-					memcpy(section->sectname,"dsce.objc.old",14);
+					memcpy(section->sectname,IMPOSTOR_OBJC_OLD,strlen(IMPOSTOR_OBJC_OLD)+1);
 				}
 			}
 		}];
@@ -519,6 +607,8 @@ BOOL isAligned(long address,int amount)
 	
 	long reexportCount=0;
 	
+	long baseAddress=wrapOffset(self,0).address;
+	
 	std::vector<ExportInfoTrie::Entry> trieEntries;
 	for(Address* item in self.exports)
 	{
@@ -527,7 +617,7 @@ BOOL isAligned(long address,int amount)
 		struct ExportInfo info={};
 		if(item.address)
 		{
-			info.address=item.address-self.cacheImage.baseAddress;
+			info.address=item.address-baseAddress;
 		}
 		
 		if(item.isReexport)
@@ -687,11 +777,23 @@ BOOL isAligned(long address,int amount)
 	long segmentOffset=address-command->vmaddr;
 	long offset=command->fileoff+segmentOffset;
 	
+	// exception for base address (outside any section but needed for exports trie)
+	
+	if(offset==0)
+	{
+		return offset;
+	}
+	
 	__block BOOL inSection=false;
 	[self.header forEachSectionCommand:^(struct segment_command_64* segment,struct section_64* section)
 	{
 		if(segment==command)
 		{
+			if(self.shouldMakeContiguous&&!strcmp(section->sectname,IMPOSTOR_PAD))
+			{
+				return;
+			}
+			
 			if(address>=section->addr&&address<section->addr+section->size)
 			{
 				inSection=true;
@@ -720,6 +822,11 @@ BOOL isAligned(long address,int amount)
 	
 	[self.header forEachSectionCommand:^(struct segment_command_64* segment,struct section_64* section)
 	{
+		if(self.shouldMakeContiguous&&!strcmp(section->sectname,IMPOSTOR_PAD))
+		{
+			return;
+		}
+		
 		NSArray<NSNumber*>* rebases=[self.cacheImage.file rebasesWithStartAddress:section->addr endAddress:section->addr+section->size];
 		
 		for(NSNumber* rebase in rebases)
@@ -838,11 +945,12 @@ BOOL isAligned(long address,int amount)
 	for(int index=0;index<count;index++)
 	{
 		struct objc_class* cls=(struct objc_class*)wrapAddress(self,classes[index]).pointer;
-		struct objc_data* data=(struct objc_data*)wrapAddress(self,(long)cls->data).pointer;
+		
+		// TODO: check and find this constant in objc4
+		
+		struct objc_data* data=(struct objc_data*)wrapAddress(self,((long)cls->data)&~3).pointer;
 		struct objc_class* metaCls=(struct objc_class*)wrapAddress(self,(long)cls->metaclass).pointer;
 		struct objc_data* metaData=(struct objc_data*)wrapAddress(self,(long)metaCls->data).pointer;
-		
-		// superclass/metaclass pointers now auto-fixed
 		
 		[self fixMethodListWithAddress:(long)data->baseMethods];
 		[self fixMethodListWithAddress:(long)metaData->baseMethods];
@@ -1030,9 +1138,20 @@ BOOL isAligned(long address,int amount)
 	
 	long internalCount=0;
 	long cppCount=0;
+	long noImageCount=0;
 	long unresolvedCount=0;
 	long unreachableCount=0;
+	long unreachableGotCount=0;
 	long successCount=0;
+	
+	long gotStart=-1;
+	long gotEnd=-1;
+	if(self.needsGotImpostor)
+	{
+		struct segment_command_64* seg=[self.header segmentCommandWithName:(char*)IMPOSTOR_GOT];
+		gotStart=seg->vmaddr;
+		gotEnd=gotStart+seg->vmsize;
+	}
 	
 	for(NSNumber* key in self.fixups.allKeys)
 	{
@@ -1050,7 +1169,11 @@ BOOL isAligned(long address,int amount)
 		}
 		
 		CacheImage* image=[self.cache imageWithAddress:destination];
-		assert(image);
+		if(!image)
+		{
+			noImageCount++;
+			continue;
+		}
 		
 		// delete rebase (usually overwritten but can exit early)
 		// TODO: also zero/mark the destination for debugging?
@@ -1081,7 +1204,7 @@ BOOL isAligned(long address,int amount)
 			else
 			{
 				// TODO: this should never happen...
-				// indicates either bugs, or need better addend heuristic?
+				// indicates either bugs, or a need for better addend heuristic?
 				
 				unresolvedCount++;
 				continue;
@@ -1093,10 +1216,16 @@ BOOL isAligned(long address,int amount)
 		if(ordinal==-1)
 		{
 			// resolved to a particular symbol + image, but can't reach that image via imports
-			// TODO: often occurs due to __got uniquing, should never happen otherwise
-			// at minimum, detect which of the two it is...
 			
 			unreachableCount++;
+			
+			if(rebase.address>=gotStart&&rebase.address<gotEnd)
+			{
+				// expected here since it's from all images
+				
+				unreachableGotCount++;
+			}
+			
 			continue;
 		}
 		
@@ -1104,7 +1233,7 @@ BOOL isAligned(long address,int amount)
 		self.fixups[key]=[Address bindWithAddress:rebase.address ordinal:ordinal name:name addend:addend];
 	}
 	
-	trace(@"found %lx binds (%lx via C++ hack), skipped %lx internal pointers, failed to resolve %lx addresses to symbols, failed to reach %lx dylibs in imports tree",successCount,cppCount,internalCount,unresolvedCount,unreachableCount);
+	trace(@"found %lx binds (%lx via C++ hack), skipped %lx internal pointers, failed to find image containing %lx addresses, failed to resolve %lx addresses to symbols, failed to reach %lx dylibs in imports tree (%lx due to uniqued __got)",successCount,cppCount,internalCount,noImageCount,unresolvedCount,unreachableCount,unreachableGotCount);
 }
 
 -(void)stepMarkUUID

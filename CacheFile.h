@@ -1,7 +1,6 @@
 // TODO: properly tune this
-// so far just tried 0x100, 0x1000, 0x10000 on Ventura AppKit
 
-#define FAST_CHUNK_SIZE 0x1000
+#define FAST_CHUNK_SIZE 0x10000
 
 @interface CacheFile:NSObject<LocationBase>
 

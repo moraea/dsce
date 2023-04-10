@@ -18,5 +18,6 @@
 -(struct section_64*)sectionCommandWithName:(char*)name;
 -(void)addCommand:(struct load_command*)command;
 -(int)ordinalWithDylibPath:(NSString*)target cache:(CacheSet*)cache symbol:(NSString*)symbol newSymbolOut:(NSString**)newSymbolOut;
+-(void)dumpSegments;
 
 @end

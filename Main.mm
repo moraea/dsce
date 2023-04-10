@@ -9,8 +9,11 @@ void trace(NSString* format,...)
 	NSString* message=[NSString.alloc initWithFormat:format arguments:args].autorelease;
 	va_end(args);
 	
-	printf("\e[%dm%s\e[0m\n",31+(DSCE_VERSION+1)%6,message.UTF8String);
+	printf("\e[%dm%s\e[0m\n",31+DSCE_VERSION%6,message.UTF8String);
 }
+
+BOOL flagList=false;
+BOOL flagPad=false;
 
 #import "LocationBase.h"
 #import "Location.h"
@@ -53,68 +56,74 @@ void extract(CacheSet* cache,CacheImage* image)
 
 int main(int argc,char** argv)
 {
-	// just exiting is more efficient
+	NSString* edge=[@"" stringByPaddingToLength:9+log10(DSCE_VERSION) withString:@"─" startingAtIndex:0];
+	trace(@"┌%@┐",edge);
+	trace(@"│ dsce v%d │",DSCE_VERSION);
+	trace(@"└%@┘",edge);
 	
-	// @autoreleasepool
+	if(argc<3)
 	{
-		trace(@"amy's dsce v%d",DSCE_VERSION);
-		
-		if(argc<3)
-		{
-			trace(@"usage: %s <cache> ( <image prefix> ... | list )",argv[0]);
-			return 1;
-		}
-		
-		double startTime=NSDate.date.timeIntervalSince1970;
-		
-		NSString* cachePath=[NSString stringWithUTF8String:argv[1]];
-		CacheSet* cache=[CacheSet.alloc initWithPathPrefix:cachePath].autorelease;
-		assert(cache);
-		
-		NSString* keyword=[NSString stringWithUTF8String:argv[2]];
-		
-		// TODO: cringe
-		
-		if([keyword isEqual:@"list"])
-		{
-			NSArray<CacheImage*>* images=[cache imagesWithPathPrefix:@"/"];
-			
-			trace(@"listing %x images",images.count);
-			
-			for(CacheImage* image in images)
-			{
-				trace(@"%@",image.path);
-			}
-		}
-		else
-		{
-			// TODO: i wonder what would happen if i ran a few of these in parallel...
-			// shouldn't require too many changes?
-			
-			NSMutableArray<CacheImage*>* images=NSMutableArray.alloc.init.autorelease;
-			
-			for(int index=2;index<argc;index++)
-			{
-				NSString* prefix=[NSString stringWithUTF8String:argv[index]];
-				NSArray<CacheImage*>* subset=[cache imagesWithPathPrefix:prefix];
-				if(subset.count==0)
-				{
-					trace(@"no images found for %@*",prefix);
-					abort();
-				}
-				[images addObjectsFromArray:subset];
-			}
-			
-			trace(@"matched %x images",images.count);
-				
-			for(CacheImage* image in images)
-			{
-				extract(cache,image);
-			}
-		}
-		
-		trace(@"total %.2lf seconds",NSDate.date.timeIntervalSince1970-startTime);
+		trace(@"usage: dsce <first cache file> [list] [pad] [path prefix ...]");
+		return 1;
 	}
+	
+	double startTime=NSDate.date.timeIntervalSince1970;
+	
+	NSString* cachePath=[NSString stringWithUTF8String:argv[1]];
+	CacheSet* cache=[CacheSet.alloc initWithPathPrefix:cachePath].autorelease;
+	assert(cache);
+	
+	NSMutableArray<CacheImage*>* images=NSMutableArray.alloc.init.autorelease;
+	
+	for(int index=2;index<argc;index++)
+	{
+		NSString* arg=[NSString stringWithUTF8String:argv[index]];
+		
+		if([arg isEqual:@"list"])
+		{
+			flagList=true;
+			continue;
+		}
+		
+		if([arg isEqual:@"pad"])
+		{
+			flagPad=true;
+			continue;
+		}
+		
+		NSArray<CacheImage*>* subset=[cache imagesWithPathPrefix:arg];
+		if(subset.count==0)
+		{
+			trace(@"no images found for %@*",arg);
+			abort();
+		}
+		[images addObjectsFromArray:subset];
+	}
+	
+	if(flagList)
+	{
+		if(images.count==0)
+		{
+			[images addObjectsFromArray:[cache imagesWithPathPrefix:@"/"]];
+		}
+		
+		trace(@"list %x images",images.count);
+		
+		for(CacheImage* image in images)
+		{
+			trace(@"%@",image.path);
+		}
+	}
+	else
+	{
+		for(int index=0;index<images.count;index++)
+		{
+			trace(@"extract %@ (%x/%x)",images[index].path,index+1,images.count);
+			extract(cache,images[index]);
+		}
+	}
+	
+	trace(@"total %.2lf seconds",NSDate.date.timeIntervalSince1970-startTime);
 	
 	return 0;
 }

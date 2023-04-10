@@ -109,7 +109,13 @@
 	{
 		if(address>=command->vmaddr&&address<command->vmaddr+command->vmsize)
 		{
-			assert(!result);
+			if(result)
+			{
+				trace(@"multiple segments cover address %lx",address);
+				self.dumpSegments;
+				abort();
+			}
+			
 			result=command;
 			
 			if(indexOut)
@@ -133,7 +139,13 @@
 	{
 		if(offset>=command->fileoff&&offset<command->fileoff+command->filesize)
 		{
-			assert(!result);
+			if(result)
+			{
+				trace(@"multiple segments cover offset %lx",offset);
+				self.dumpSegments;
+				abort();
+			}
+			
 			result=command;
 			
 			if(indexOut)
@@ -292,6 +304,14 @@
 	}
 	
 	return -1;
+}
+
+-(void)dumpSegments
+{
+	[self forEachSegmentCommand:^(struct segment_command_64* seg)
+	{
+		trace(@"segment %s address %lx offset %lx memory size %lx file size %lx",seg->segname,seg->vmaddr,seg->fileoff,seg->vmsize,seg->filesize);
+	}];
 }
 
 @end
