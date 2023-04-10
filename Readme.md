@@ -13,9 +13,9 @@ Incomplete macOS 12+ dyld cache extractor. Used by [OCLP](https://github.com/dor
 ## status
 
 - [x] copy header and load commands
-	- [x] allocate extra space for additional commands
+	- [x] allocate space for additional commands
 - [x] copy segments/sections, fixing offsets and alignment
-	- [x] optionally padding to keep addresses contiguous (produces 2+ GB images)
+	- [x] optionally pad to keep addresses contiguous (produces 2+ GB images)
 - [x] generate rebase opcodes
 	- [x] by applying cache rebase chain
 - [x] generate bind opcodes
