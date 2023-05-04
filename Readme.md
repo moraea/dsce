@@ -48,7 +48,7 @@ Incomplete macOS 12+ dyld cache extractor. Used by [OCLP](https://github.com/dor
 	- [x] 12.6 - AppKit, QuartzCore, CoreGraphics, Carbon, RenderBox, VectorKit, Metal, MetalPerformanceShaders, MTLCompiler, GPUCompiler, AppleGVA, AppleGVACore
 	- [x] 12.6 - AMDMTLBronzeDriver, AMDShared, AMDRadeonVADriver, AMDRadeonVADriver2
 	- [x] 13.2.1 - AppKit, QuartzCore, CoreGraphics, Carbon, RenderBox, VectorKit, Metal, MetalPerformanceShaders, MTLCompiler, GPUCompiler
-	- [ ] 13.2.1 - libSystem, Foundation, Combine, ContactsFoundation, FamilyCircle
+	- [ ] 13.2.1 - libSystem, Foundation, Combine, ContactsFoundation, FamilyCircle...
 - [ ] support Big Sur
 - [x] support Monterey
 - [x] support Ventura

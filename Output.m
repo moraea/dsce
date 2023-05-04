@@ -82,12 +82,15 @@ BOOL isAligned(long address,int amount)
 	self.stepFixProtoRefs;
 	self.stepFixProtos;
 	self.stepFixPointersNew;
+	self.stepFixInitOffsets;
 	self.stepBuildLinkedit;
 	self.stepMarkUUID;
 	self.stepSyncHeader;
 	
 	trace(@"write %@",outPath);
-	[self.data writeToFile:outPath atomically:false];
+	NSError* error=nil;
+	[self.data writeToFile:outPath options:0 error:&error];
+	assert(!error);
 }
 
 -(BOOL)needsObjcImpostor
@@ -97,7 +100,7 @@ BOOL isAligned(long address,int amount)
 
 -(BOOL)needsGotImpostor
 {
-	if(self.cache.majorVersion!=13)
+	if(self.cache.majorVersion<13)
 	{
 		return false;
 	}
@@ -185,8 +188,6 @@ BOOL isAligned(long address,int amount)
 				{
 					if(self.shouldMakeContiguous)
 					{
-						// unlike objc impostor, there's a gap here
-						
 						self.addPadCommandCommon;
 					}
 					
@@ -244,6 +245,7 @@ BOOL isAligned(long address,int amount)
 				break;
 			
 			// TODO: explicitly list ignored commands, add assert for unrecognied
+			// the current list is sort of arbitrary and could be omitting important things
 			
 			default:
 				skipped++;
@@ -410,10 +412,14 @@ BOOL isAligned(long address,int amount)
 		long newSegOffset=self.data.length;
 		assert(isAligned(newSegOffset,0x1000));
 		
+		// TODO: in contiguous mode, assert that we are actually contiguous
+		
 		if(newSegOffset==0)
 		{
 			newSegAddress-=HEADER_EXTRA;
 			addressDelta-=HEADER_EXTRA;
+			
+			self.baseAddressDelta=addressDelta;
 		}
 		
 		[data increaseLengthBy:-addressDelta];
@@ -642,7 +648,6 @@ BOOL isAligned(long address,int amount)
 	[data appendBytes:trieBytes.data() length:trieBytes.size()];
 	
 	// to avoid gap before symtab, the padding is counted as part of the exports trie
-	// this is not an issue since the structure defines its own end
 	
 	align(data.length,0x1000,true,&padding);
 	[data increaseLengthBy:padding];
@@ -818,8 +823,6 @@ BOOL isAligned(long address,int amount)
 {
 	self.fixups=NSMutableDictionary.alloc.init.autorelease;
 	
-	// TODO: almost like duplication with LocationBase protocol... not quite
-	
 	[self.header forEachSectionCommand:^(struct segment_command_64* segment,struct section_64* section)
 	{
 		if(self.shouldMakeContiguous&&!strcmp(section->sectname,IMPOSTOR_PAD))
@@ -898,7 +901,7 @@ BOOL isAligned(long address,int amount)
 	}
 	
 	long* refs=(long*)wrapOffset(self,section->offset).pointer;
-	int count=section->size/sizeof(long*);
+	int count=section->size/sizeof(long);
 	
 	trace(@"fixing %x selector refs",count);
 	
@@ -938,7 +941,7 @@ BOOL isAligned(long address,int amount)
 	}
 	
 	long* classes=(long*)wrapOffset(self,section->offset).pointer;
-	int count=section->size/sizeof(long*);
+	int count=section->size/sizeof(long);
 	
 	trace(@"fixing %x classes",count);
 	
@@ -968,7 +971,7 @@ BOOL isAligned(long address,int amount)
 	}
 	
 	long* cats=(long*)wrapOffset(self,section->offset).pointer;
-	int count=section->size/sizeof(long*);
+	int count=section->size/sizeof(long);
 	
 	trace(@"fixing %x categories",count);
 	
@@ -993,7 +996,7 @@ BOOL isAligned(long address,int amount)
 	}
 	
 	long* refs=(long*)wrapOffset(self,section->offset).pointer;
-	int count=section->size/sizeof(long*);
+	int count=section->size/sizeof(long);
 	
 	trace(@"fixing %x protocol refs",count);
 	
@@ -1015,7 +1018,7 @@ BOOL isAligned(long address,int amount)
 	}
 	
 	long* refs=(long*)wrapOffset(self,section->offset).pointer;
-	int count=section->size/sizeof(long*);
+	int count=section->size/sizeof(long);
 	
 	trace(@"fixing %x protocols",count);
 	
@@ -1039,7 +1042,7 @@ BOOL isAligned(long address,int amount)
 	assert(section);
 	
 	long* refs=(long*)wrapOffset(self,section->offset).pointer;
-	int count=section->size/sizeof(long*);
+	int count=section->size/sizeof(long);
 	
 	for(int index=0;index<count;index++)
 	{
@@ -1171,6 +1174,8 @@ BOOL isAligned(long address,int amount)
 		CacheImage* image=[self.cache imageWithAddress:destination];
 		if(!image)
 		{
+			// TODO: i still don't think this should ever happen (but it does)
+			
 			noImageCount++;
 			continue;
 		}
@@ -1233,7 +1238,33 @@ BOOL isAligned(long address,int amount)
 		self.fixups[key]=[Address bindWithAddress:rebase.address ordinal:ordinal name:name addend:addend];
 	}
 	
+	// TODO: may be worth creating a "strict" flag to abort on weird ones of these
+	
 	trace(@"found %lx binds (%lx via C++ hack), skipped %lx internal pointers, failed to find image containing %lx addresses, failed to resolve %lx addresses to symbols, failed to reach %lx dylibs in imports tree (%lx due to uniqued __got)",successCount,cppCount,internalCount,noImageCount,unresolvedCount,unreachableCount,unreachableGotCount);
+}
+
+-(void)stepFixInitOffsets
+{
+	if(self.baseAddressDelta==0)
+	{
+		return;
+	}
+	
+	struct section_64* section=[self.header sectionCommandWithName:(char*)"__init_offsets"];
+	if(!section)
+	{
+		return;
+	}
+	
+	int* offsets=(int*)wrapOffset(self,section->offset).pointer;
+	int count=section->size/sizeof(int);
+	
+	trace(@"fixing %x initializer offsets",count);
+	
+	for(int index=0;index<count;index++)
+	{
+		offsets[index]+=self.baseAddressDelta;
+	}
 }
 
 -(void)stepMarkUUID

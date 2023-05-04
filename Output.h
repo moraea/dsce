@@ -7,6 +7,7 @@
 @property(retain) NSMutableDictionary<NSNumber*,Address*>* fixups;
 @property(retain) NSMutableArray<Address*>* exports;
 @property(retain) NSMutableDictionary<NSString*,Selector*>* sels;
+@property(assign) long baseAddressDelta;
 
 +(void)runWithCache:(CacheSet*)cache image:(CacheImage*)image outPath:(NSString*)outPath;
 
