@@ -1,3 +1,7 @@
+#import "Output.h"
+#import "Location.h"
+#import "Util.h"
+
 #define IMPOSTOR_OBJC_TEMP "dsce.objc"
 #define IMPOSTOR_OBJC_OLD "dsce.objc.old"
 #define IMPOSTOR_GOT "dsce.got"
