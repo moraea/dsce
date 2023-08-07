@@ -19,7 +19,6 @@ jobs:
         tidy-checks: '-*'
         version: '16'
         files-changed-only: ${{ github.event_name == 'pull_request' }}
-        thread-comments: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
