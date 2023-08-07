@@ -1,0 +1,31 @@
+name: Check code style
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  format:
+    name: Check code style
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cpp-linter/cpp-linter-action@v2
+      id: linter
+      with:
+        style: file
+        extensions: 'c,h,m,C,H,cpp,mm,hpp,cc,hh,c++,h++,cxx,hxx'
+        tidy-checks: '-*'
+        version: '16'
+        files-changed-only: ${{ github.event_name == 'pull_request' }}
+        thread-comments: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Check for lint failure
+      if: steps.linter.outputs.checks-failed > 0
+      run: |
+        echo "::error::Code style check failed."
+        exit 1
+

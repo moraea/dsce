@@ -10,6 +10,7 @@ all: dsce
 
 # This is a bit of a hack to get the binary to rebuild when the headers change
 dsce: $(HEADERS)
+dsce: $(SRC)
 	clang++ -fmodules -fcxx-modules -std=c++17 -Wno-unused-getter-return-value -mmacosx-version-min=12 -Idyld/common -DDSCE_VERSION="$(VERSION)" $(SRC) -o $@
 
 clean:
