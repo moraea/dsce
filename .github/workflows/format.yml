@@ -8,7 +8,7 @@ on:
 jobs:
   format:
     name: Check code style
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - uses: cpp-linter/cpp-linter-action@v2
