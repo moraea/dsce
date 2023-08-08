@@ -26,6 +26,7 @@ jobs:
 
     - name: Restore cache
       uses: actions/cache@v3
+      id: cache
       with:
         key: ${{ env.UBUNTU_CODENAME }}-apt-${{ env.LLVM_VERSION }}
         path: |
@@ -39,6 +40,7 @@ jobs:
           !/var/lib/apt/lists/lock
 
     - name: Add LLVM repo
+      if: steps.cache.outputs.cache-hit != 'true'
       run: |
         if [[ ! -f /etc/apt/trusted.gpg.d/apt.llvm.org.asc ]]; then
             # download GPG key once
@@ -46,8 +48,6 @@ jobs:
         fi
         source /etc/os-release
         echo "deb http://apt.llvm.org/${{ env.UBUNTU_CODENAME }}/ llvm-toolchain-${{ env.UBUNTU_CODENAME }}-${{ env.LLVM_VERSION}} main" | sudo tee /etc/apt/sources.list.d/llvm.list
-        sudo apt-get update
-        sudo apt-get install clang-format-${{ env.LLVM_VERSION}} clang-tidy-${{ env.LLVM_VERSION }}
 
     - uses: cpp-linter/cpp-linter-action@v2
       id: linter
@@ -55,7 +55,7 @@ jobs:
         style: file
         extensions: 'c,h,m,C,H,cpp,mm,hpp,cc,hh,c++,h++,cxx,hxx'
         tidy-checks: '-*'
-        version: '16'
+        version: ${{ env.LLVM_VERSION }}
         files-changed-only: ${{ github.event_name == 'pull_request' }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
