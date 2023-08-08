@@ -24,7 +24,7 @@ jobs:
         fi
         source /etc/os-release
         echo "UBUNTU_CODENAME=${UBUNTU_CODENAME}" >> $GITHUB_ENV
-        sudo add-apt-repository "deb http://apt.llvm.org/${UBUNTU_CODENAME}/ llvm-toolchain-${UBUNTU_CODENAME}-${LLVM_VERSION} main"
+        sudo add-apt-repository "deb http://apt.llvm.org/${UBUNTU_CODENAME}/ llvm-toolchain-${UBUNTU_CODENAME}-${{ env.LLVM_VERSION }} main"
         sudo apt-get update
   
     - name: Install LLVM
