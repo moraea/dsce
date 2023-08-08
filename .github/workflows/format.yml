@@ -16,6 +16,28 @@ jobs:
     # We do not want to check submodules
     - uses: actions/checkout@v3
 
+    - name: Set permissions
+      run: chmod -R a+rwx /var/cache/apt/archives
+
+    - name: Get codename
+      run: |
+        source /etc/os-release
+        echo "UBUNTU_CODENAME=${UBUNTU_CODENAME}" >> $GITHUB_ENV
+
+    - name: Restore cache
+      uses: actions/cache@v3
+      with:
+        key: ${{ env.UBUNTU_CODENAME }}-apt-${{ env.LLVM_VERSION }}
+        path: |
+          /var/cache/apt/archives/**.deb
+          !/var/cache/apt/archives/partial
+          !/var/cache/apt/archives/lock
+          /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          /etc/apt/sources.list.d/llvm.list
+          /var/lib/apt/lists/**
+          !/var/lib/apt/lists/partial
+          !/var/lib/apt/lists/lock
+
     - name: Add LLVM repo
       run: |
         if [[ ! -f /etc/apt/trusted.gpg.d/apt.llvm.org.asc ]]; then
@@ -23,15 +45,9 @@ jobs:
             wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
         fi
         source /etc/os-release
-        echo "UBUNTU_CODENAME=${UBUNTU_CODENAME}" >> $GITHUB_ENV
-        sudo add-apt-repository "deb http://apt.llvm.org/${UBUNTU_CODENAME}/ llvm-toolchain-${UBUNTU_CODENAME}-${{ env.LLVM_VERSION }} main"
+        echo "deb http://apt.llvm.org/${{ env.UBUNTU_CODENAME }}/ llvm-toolchain-${{ env.UBUNTU_CODENAME }}-${{ env.LLVM_VERSION}} main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt-get update
-  
-    - name: Install LLVM
-      uses: awalsh128/cache-apt-pkgs-action@latest
-      with:
-        packages: clang-format-${{ env.LLVM_VERSION}} clang-tidy-${{ env.LLVM_VERSION }}
-        version: ${{ env.UBUNTU_CODENAME }}-${{ env.LLVM_VERSION }}
+        sudo apt-get install clang-format-${{ env.LLVM_VERSION}} clang-tidy-${{ env.LLVM_VERSION }}
 
     - uses: cpp-linter/cpp-linter-action@v2
       id: linter
