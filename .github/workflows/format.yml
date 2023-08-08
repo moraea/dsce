@@ -66,3 +66,6 @@ jobs:
         echo "::error::Code style check failed."
         exit 1
 
+    - name: Set permissions
+      run: sudo chmod -R a+rwx /var/cache/apt/archives /etc/apt/trusted.gpg.d /etc/apt/sources.list.d /var/lib/apt/lists
+
