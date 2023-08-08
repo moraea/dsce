@@ -39,10 +39,7 @@ jobs:
     - name: Add LLVM repo
       if: steps.cache.outputs.cache-hit != 'true'
       run: |
-        if [[ ! -f /etc/apt/keyrings/apt.llvm.org.asc ]]; then
-            # download GPG key once
-            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc
-        fi
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc
         echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] http://apt.llvm.org/${{ env.UBUNTU_CODENAME }}/ llvm-toolchain-${{ env.UBUNTU_CODENAME }}-${{ env.LLVM_VERSION}} main" | sudo tee /etc/apt/sources.list.d/llvm.list
 
     - uses: cpp-linter/cpp-linter-action@v2
