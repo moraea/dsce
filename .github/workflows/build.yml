@@ -10,7 +10,7 @@ jobs:
     name: Build
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: recursive
-    - run: make
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - run: make

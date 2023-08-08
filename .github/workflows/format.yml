@@ -5,12 +5,32 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  LLVM_VERSION: 16
+
 jobs:
   format:
     name: Check code style
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+
+    - name: Add LLVM repo
+      run: |
+        if [[ ! -f /etc/apt/trusted.gpg.d/apt.llvm.org.asc ]]; then
+            # download GPG key once
+            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+        fi
+        source /etc/os-release
+        sudo add-apt-repository "deb http://apt.llvm.org/${UBUNTU_CODENAME}/ llvm-toolchain-${UBUNTU_CODENAME}-${LLVM_VERSION} main"
+        sudo apt-get update
+  
+    - name: Install LLVM
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: clang-format-${LLVM_VERSION} clang-tidy-${LLVM_VERSION}
+        version: ${UBUNTU_CODENAME}-${LLVM_VERSION}
+
     - uses: cpp-linter/cpp-linter-action@v2
       id: linter
       with:
