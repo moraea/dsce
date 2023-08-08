@@ -35,7 +35,7 @@ jobs:
           !/var/cache/apt/archives/lock
           /etc/apt/trusted.gpg.d/apt.llvm.org.asc
           /etc/apt/sources.list.d/llvm.list
-          /var/lib/apt/lists/**
+          /var/lib/apt/lists/*
           !/var/lib/apt/lists/partial
           !/var/lib/apt/lists/lock
 
