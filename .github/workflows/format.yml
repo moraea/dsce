@@ -13,6 +13,7 @@ jobs:
     name: Check code style
     runs-on: ubuntu-latest
     steps:
+    # We do not want to check submodules
     - uses: actions/checkout@v3
 
     - name: Add LLVM repo
