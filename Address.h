@@ -1,3 +1,5 @@
+@import Foundation;
+
 #define ADDRESS_REBASE 1
 #define ADDRESS_BIND 2
 #define ADDRESS_EXPORT 3

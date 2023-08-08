@@ -1,3 +1,5 @@
+@import Foundation;
+
 @interface Selector:NSObject
 
 @property(assign) long stringAddress;
