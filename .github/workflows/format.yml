@@ -22,14 +22,15 @@ jobs:
             wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
         fi
         source /etc/os-release
+        echo "UBUNTU_CODENAME=${UBUNTU_CODENAME}" >> $GITHUB_ENV
         sudo add-apt-repository "deb http://apt.llvm.org/${UBUNTU_CODENAME}/ llvm-toolchain-${UBUNTU_CODENAME}-${LLVM_VERSION} main"
         sudo apt-get update
   
     - name: Install LLVM
       uses: awalsh128/cache-apt-pkgs-action@latest
       with:
-        packages: clang-format-${LLVM_VERSION} clang-tidy-${LLVM_VERSION}
-        version: ${UBUNTU_CODENAME}-${LLVM_VERSION}
+        packages: clang-format-${{ env.LLVM_VERSION}} clang-tidy-${{ env.LLVM_VERSION }}
+        version: ${{ env.UBUNTU_CODENAME }}-${{ env.LLVM_VERSION }}
 
     - uses: cpp-linter/cpp-linter-action@v2
       id: linter
