@@ -6,8 +6,11 @@
 #define IMPOSTOR_OBJC_OLD "dsce.objc.old"
 #define IMPOSTOR_GOT "dsce.got"
 #define IMPOSTOR_PAD "dsce.pad"
-#define HEADER_EXTRA 0x1000
 #define IMPORT_HACK_OFFSET 0x1000000000
+
+// TODO: broken currently
+
+#define HEADER_EXTRA 0 // 0x1000
 
 // https://en.wikipedia.org/wiki/LEB128
 
@@ -131,6 +134,7 @@ BOOL isAligned(long address,int amount)
 	self.header=ImageHeader.alloc.initEmpty.autorelease;
 	
 	self.header.header->flags=self.cacheImage.header.header->flags;
+	self.header.header->flags&=~MH_DYLIB_IN_CACHE;
 	
 	__block int copied=0;
 	__block int skipped=0;
@@ -907,7 +911,7 @@ BOOL isAligned(long address,int amount)
 	long* refs=(long*)wrapOffset(self,section->offset).pointer;
 	int count=section->size/sizeof(long);
 	
-	trace(@"fixing %x selector refs",count);
+	trace(@"fix %x selector refs",count);
 	
 	for(int index=0;index<count;index++)
 	{
@@ -947,7 +951,7 @@ BOOL isAligned(long address,int amount)
 	long* classes=(long*)wrapOffset(self,section->offset).pointer;
 	int count=section->size/sizeof(long);
 	
-	trace(@"fixing %x classes",count);
+	trace(@"fix %x classes",count);
 	
 	for(int index=0;index<count;index++)
 	{
@@ -977,7 +981,7 @@ BOOL isAligned(long address,int amount)
 	long* cats=(long*)wrapOffset(self,section->offset).pointer;
 	int count=section->size/sizeof(long);
 	
-	trace(@"fixing %x categories",count);
+	trace(@"fix %x categories",count);
 	
 	for(int index=0;index<count;index++)
 	{
@@ -1002,7 +1006,7 @@ BOOL isAligned(long address,int amount)
 	long* refs=(long*)wrapOffset(self,section->offset).pointer;
 	int count=section->size/sizeof(long);
 	
-	trace(@"fixing %x protocol refs",count);
+	trace(@"fix %x protocol refs",count);
 	
 	for(int index=0;index<count;index++)
 	{
@@ -1024,7 +1028,7 @@ BOOL isAligned(long address,int amount)
 	long* refs=(long*)wrapOffset(self,section->offset).pointer;
 	int count=section->size/sizeof(long);
 	
-	trace(@"fixing %x protocols",count);
+	trace(@"fix %x protocols",count);
 	
 	for(int index=0;index<count;index++)
 	{
@@ -1141,7 +1145,7 @@ BOOL isAligned(long address,int amount)
 
 -(void)stepFixPointersNew
 {
-	trace(@"scanning %lx rebases",self.fixups.count);
+	trace(@"scan %lx rebases",self.fixups.count);
 	
 	long internalCount=0;
 	long cppCount=0;
@@ -1263,7 +1267,7 @@ BOOL isAligned(long address,int amount)
 	int* offsets=(int*)wrapOffset(self,section->offset).pointer;
 	int count=section->size/sizeof(int);
 	
-	trace(@"fixing %x initializer offsets",count);
+	trace(@"fix %x initializer offsets (delta %lx)",count,self.baseAddressDelta);
 	
 	for(int index=0;index<count;index++)
 	{
@@ -1290,7 +1294,7 @@ BOOL isAligned(long address,int amount)
 {
 	// TODO: ensure we don't overrun TEXT
 	
-	trace(@"syncing modified header (%lx bytes)",self.header.data.length);
+	trace(@"sync modified header (%lx bytes)",self.header.data.length);
 	
 	memcpy(self.data.mutableBytes,self.header.data.mutableBytes,self.header.data.length);
 }
