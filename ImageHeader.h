@@ -1,3 +1,7 @@
+@import Foundation;
+
+@class CacheSet;
+
 @interface ImageHeader:NSObject
 
 @property(retain) NSMutableData* data;

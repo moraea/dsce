@@ -1,3 +1,5 @@
+#import "Location.h"
+
 @implementation Location
 
 +(instancetype)locationWithBase:(NSObject<LocationBase>*)base address:(long)address

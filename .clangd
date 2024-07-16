@@ -1,0 +1,16 @@
+CompileFlags:
+  Add:
+    [
+      -fmodules,
+      -fcxx-modules,
+      -Wno-unused-getter-return-value,
+      -mmacosx-version-min=12,
+      -I..,
+      -I../dyld/common,
+      -DDSCE_VERSION=6,
+    ]
+---
+If:
+  PathMatch: [.*\.cpp, .*\.hpp, .*\.mm]
+CompileFlags:
+  Add: [-std=c++17]

@@ -1,0 +1,6 @@
+[submodule "dyld"]
+	path = dyld
+	url = https://github.com/apple-oss-distributions/dyld.git
+[submodule "objc4"]
+	path = objc4
+	url = https://github.com/apple-oss-distributions/objc4.git
