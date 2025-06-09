@@ -177,8 +177,20 @@ BOOL isAligned(long address,int amount)
 					impostor->cmd=LC_SEGMENT_64;
 					impostor->cmdsize=impostorSize;
 					memcpy(impostor->segname,IMPOSTOR_OBJC_TEMP,strlen(IMPOSTOR_OBJC_TEMP)+1);
-					impostor->maxprot=VM_PROT_READ;
-					impostor->initprot=VM_PROT_READ;
+					
+					/*
+					
+					never actually written, but 15.4+ dyld gets mad about it being read-only for some reason?
+					
+					> Library not loaded: /System/Library/PrivateFrameworks/NearField.framework/Versions/A/NearFieldOld.dylib
+					> Referenced from: <E934E23E-EDFF-38B8-A531-A71AE0309096> /System/Library/PrivateFrameworks/NearField.framework/Versions/A/NearField
+					> Reason: tried: '/System/Library/PrivateFrameworks/NearField.framework/Versions/A/NearFieldOld.dylib' (__DATA segment permissions is not 'rw-'), '/System/Volumes/Preboot/Cryptexes/OS/System/Library/PrivateFrameworks/NearField.framework/Versions/A/NearFieldOld.dylib' (no such file), '/System/Library/PrivateFrameworks/NearField.framework/Versions/A/NearFieldOld.dylib' (__DATA segment permissions is not 'rw-')
+					
+					*/
+					
+					impostor->maxprot=VM_PROT_READ|VM_PROT_WRITE;
+					impostor->initprot=VM_PROT_READ|VM_PROT_WRITE;
+					
 					impostor->nsects=1;
 					
 					[self.header addCommand:(struct load_command*)impostor];

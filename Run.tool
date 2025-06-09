@@ -1,4 +1,4 @@
-VERSION=7
+VERSION=10
 
 set -e
 
