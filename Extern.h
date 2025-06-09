@@ -1,10 +1,17 @@
 @import Foundation;
 @import MachO.nlist;
 
-// TODO: works as of 2023-3-2 but not stable across Apple opensource releases
-// i had to adjust clang command as well this time
+/*
 
-#import "dyld/cache-builder/dyld_cache_format.h"
+TODO: yucky but compiles with apple-oss-distributions's dyld, objc4, libplatform as of 2025-5-8
+
+*/
+
+#import "dyld/include/mach-o/dyld_cache_format.h"
+
+#import "Defines.h"
+#undef ENABLE_CRASH_REPORTER
+#define ENABLE_CRASH_REPORTER 0
 #import "dyld/cache-builder/Trie.hpp"
 
 #define OBJC_DECLARE_SYMBOLS 1
