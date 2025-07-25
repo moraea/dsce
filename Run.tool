@@ -4,11 +4,17 @@ set -e
 
 cd "$(dirname "$0")"
 
-clang++ -fmodules -fcxx-modules -std=c++20 -Wno-unused-getter-return-value -mmacosx-version-min=12 -I apple -I apple/dyld/common -I apple/dyld/lsl -I apple/libplatform/private -DDSCE_VERSION="$VERSION" Main.mm -o dsce
+function clangCommonCpp
+{
+	clang++ -fmodules -fcxx-modules -std=c++20 -Wno-unused-getter-return-value -mmacosx-version-min=12 -I . -I apple -I apple/dyld/common -I apple/dyld/lsl -I apple/libplatform/private -DDSCE_VERSION="$VERSION" "$@"
+}
 
-# rm -rf Out
+function clangCommonC
+{
+	clang++ -fmodules "$@"
+}
 
-# ./dsce '/Volumes/amazon/open 2025-6-4/root/misc/versions/15.5 (24F74)/cryptex/intel/System/Library/dyld/dyld_shared_cache_x86_64h' /System/Library/Extensions/AppleIntelKBLGraphicsMTLDriver.bundle/Contents/MacOS/AppleIntelKBLGraphicsMTLDriver
-
-# find -d Out -type f -exec codesign -f -s - {} \;
-# chmod -R 755 Out
+clangCommonCpp Main.mm -o dsce
+clangCommonCpp 'hotfixes/dysymtab test 2.mm' -o hotfixDysymtab
+clangCommonC 'hotfixes/15.4 data rw hotfix.m' -o hotfixDataRw
+clangCommonC 'hotfixes/retroactive_flag_removal.m' -o hotfixHeader

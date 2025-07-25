@@ -1,7 +1,4 @@
-@import Foundation;
-@import MachO;
-#import "Trie.hpp"
-#define trace NSLog
+#import "Extern.h"
 
 int main(int argc,char** argv)
 {
