@@ -117,6 +117,7 @@ int main(int argc,char** argv)
 	long oldLength=data.length;
 	data.length=stringsStart-(char*)newHeader+strings.length;
 	linkedit->filesize+=data.length-oldLength;
+	linkedit->vmsize+=data.length-oldLength;
 	
 	assert([data writeToFile:output atomically:true]);
 }
